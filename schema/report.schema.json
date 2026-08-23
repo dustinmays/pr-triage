@@ -1,0 +1,143 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CI PR Triage Report",
+  "description": "Pre-scan JSON report generated in CI/CD pipeline that triggers agent triage",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "pr",
+    "ci",
+    "stack",
+    "diff",
+    "signals"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version number (must be 1 for v1 reports)"
+    },
+    "pr": {
+      "type": "object",
+      "required": [
+        "number",
+        "title",
+        "base",
+        "head"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "head": {
+          "type": "string"
+        },
+        "target_kind": {
+          "type": "string"
+        },
+        "issue_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ci": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["passed", "failed", "running", "skipped"]
+        },
+        "failing_checks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "stack": {
+      "type": "object",
+      "properties": {
+        "language": {
+          "type": "string"
+        },
+        "framework": {
+          "type": "string"
+        },
+        "runtime": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "diff": {
+      "type": "object",
+      "properties": {
+        "files_changed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "additions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "deletions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "present"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "present": {
+            "type": "boolean"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

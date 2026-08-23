@@ -1,0 +1,22 @@
+{
+  "schema_version": 99,
+  "pr": {
+    "number": 44,
+    "title": "future version PR",
+    "base": "main",
+    "head": "future-branch"
+  },
+  "ci": {
+    "status": "passed",
+    "failing_checks": []
+  },
+  "stack": {
+    "language": "go"
+  },
+  "diff": {
+    "files_changed": 1,
+    "additions": 10,
+    "deletions": 0
+  },
+  "signals": []
+}

@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 43,
+    "title": "refactor: drop legacy auth tokens table and update indexes",
+    "base": "main",
+    "head": "refactor/drop-tokens",
+    "target_kind": "refactor",
+    "issue_refs": [
+      "#789"
+    ]
+  },
+  "ci": {
+    "status": "passed",
+    "failing_checks": []
+  },
+  "stack": {
+    "language": "go",
+    "framework": "chi",
+    "runtime": "go1.25"
+  },
+  "diff": {
+    "files_changed": 3,
+    "additions": 15,
+    "deletions": 85,
+    "summary": "Removes auth_tokens table without migration record"
+  },
+  "signals": [
+    {
+      "id": "schema_changed_without_migration",
+      "present": true,
+      "evidence": [
+        "Table 'auth_tokens' removed in schema.sql but no new migration script added in migrations/"
+      ]
+    },
+    {
+      "id": "migration_history_rewritten",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "destructive_db_operation",
+      "present": true,
+      "evidence": [
+        "DROP TABLE statement detected in db/migrations/v2.sql"
+      ]
+    }
+  ],
+  "notes": [
+    "Detected schema changes without corresponding migration"
+  ]
+}
