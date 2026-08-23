@@ -121,11 +121,11 @@ func TestClient_CheckRunsAndOutput(t *testing.T) {
 		"total_count": 1,
 		"check_runs": []map[string]any{
 			{
-				"id":          999,
-				"name":        "ci/report",
-				"head_sha":    "sha-xyz",
-				"status":      "completed",
-				"conclusion":  "success",
+				"id":         999,
+				"name":       "ci/report",
+				"head_sha":   "sha-xyz",
+				"status":     "completed",
+				"conclusion": "success",
 				"output": map[string]any{
 					"title":   "CI Report",
 					"summary": `{"schema_version":1,"status":"passed"}`,
