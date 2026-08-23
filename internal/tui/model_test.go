@@ -1,6 +1,8 @@
 package tui_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,11 +14,30 @@ import (
 )
 
 type mockStore struct {
-	runs []db.Run
+	runs     []db.Run
+	repos    []db.Repo
+	prStates map[string]string
 }
 
 func (m *mockStore) ListRuns(limit int) ([]db.Run, error) {
 	return m.runs, nil
+}
+
+func (m *mockStore) ListRepos() ([]db.Repo, error) {
+	return m.repos, nil
+}
+
+func (m *mockStore) UpsertPRState(repoID int64, number int, headSHA string, runID *int64, state string) (*db.PR, error) {
+	if m.prStates == nil {
+		m.prStates = make(map[string]string)
+	}
+	m.prStates[headSHA] = state
+	return &db.PR{
+		RepoID:  repoID,
+		Number:  number,
+		HeadSHA: headSHA,
+		State:   state,
+	}, nil
 }
 
 func TestTUI_EmptyState(t *testing.T) {
@@ -126,5 +147,85 @@ func TestTUI_StoreBacked(t *testing.T) {
 	m := tui.New(store)
 	if m.SelectedRun() == nil || m.SelectedRun().ID != 10 {
 		t.Fatalf("expected store backed model to load run ID 10")
+	}
+}
+
+func TestTUI_ActionMenu_EnterActions(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "agent.log")
+	_ = os.WriteFile(logPath, []byte("agent run log details line 1\nline 2\n"), 0644)
+
+	store := &mockStore{
+		repos: []db.Repo{
+			{ID: 1, Owner: "dustinmays", Name: "pr-triage"},
+		},
+		runs: []db.Run{
+			{
+				ID:       5,
+				PRID:     77,
+				HeadSHA:  "sha-77",
+				RiskTier: "routine",
+				Model:    "sonnet",
+				Status:   "done",
+				LogPath:  logPath,
+			},
+		},
+	}
+
+	var openedURL string
+	m := tui.New(store)
+	m.SetBrowserOpener(func(url string) error {
+		openedURL = url
+		return nil
+	})
+
+	// 1. Press Enter to enter Action Menu
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+	menuView := m.View()
+
+	if !strings.Contains(menuView, "Actions for Run #5") {
+		t.Errorf("expected action menu header, got: %s", menuView)
+	}
+
+	// 2. Action 0: Open PR in Browser
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+	if openedURL != "https://github.com/dustinmays/pr-triage/pull/77" {
+		t.Errorf("expected browser to open PR URL, got %q", openedURL)
+	}
+
+	// 3. Move down to Action 1: View Run Log
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(tui.Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+	logView := m.View()
+
+	if !strings.Contains(logView, "agent run log details line 1") {
+		t.Errorf("expected log view content, got: %s", logView)
+	}
+
+	// Exit log view with 'esc'
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = updated.(tui.Model)
+
+	// 4. Move down from Action 1 to Action 2: Re-trigger Agent Review
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(tui.Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+	confirmView := m.View()
+
+	if !strings.Contains(confirmView, "Confirm Re-trigger PR #77") {
+		t.Errorf("expected confirm re-trigger view, got: %s", confirmView)
+	}
+
+	// Confirm with 'y'
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = updated.(tui.Model)
+
+	if store.prStates["sha-77"] != "report_ready" {
+		t.Errorf("expected prState to be reset to report_ready, got %s", store.prStates["sha-77"])
 	}
 }
