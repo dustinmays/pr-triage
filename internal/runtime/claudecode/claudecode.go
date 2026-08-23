@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/dustinmays/pr-triage/internal/runtime"
 )
@@ -72,6 +73,13 @@ func (a *Adapter) Run(ctx context.Context, inv runtime.Invocation, logFile io.Wr
 
 	args := a.BuildArgs(inv)
 	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Cancel = func() error {
+		if cmd.Process != nil {
+			return cmd.Process.Signal(syscall.SIGTERM)
+		}
+		return nil
+	}
+
 	if inv.Workdir != "" {
 		cmd.Dir = inv.Workdir
 	}
@@ -81,7 +89,15 @@ func (a *Adapter) Run(ctx context.Context, inv runtime.Invocation, logFile io.Wr
 		cmd.Stderr = logFile
 	}
 
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return -1, err
+	}
+
+	if inv.PIDCallback != nil && cmd.Process != nil {
+		inv.PIDCallback(cmd.Process.Pid)
+	}
+
+	err := cmd.Wait()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/dustinmays/pr-triage/internal/git"
 )
@@ -82,5 +83,41 @@ func TestGit_WorktreeAddRemoveList(t *testing.T) {
 	// Remove worktree
 	if err := git.WorktreeRemove(ctx, repoDir, wtDir); err != nil {
 		t.Fatalf("WorktreeRemove failed: %v", err)
+	}
+}
+
+func TestGit_WorktreeSweep(t *testing.T) {
+	repoDir := initTestGitRepo(t)
+	ctx := context.Background()
+
+	staleDir := filepath.Join(t.TempDir(), "wt-stale")
+	if err := git.WorktreeAdd(ctx, repoDir, staleDir, "HEAD"); err != nil {
+		t.Fatalf("WorktreeAdd failed: %v", err)
+	}
+
+	// Change modtime of staleDir to 5 days ago
+	oldTime := time.Now().Add(-5 * 24 * time.Hour)
+	_ = os.Chtimes(staleDir, oldTime, oldTime)
+
+	swept, err := git.WorktreeSweep(ctx, repoDir, 72*time.Hour)
+	if err != nil {
+		t.Fatalf("WorktreeSweep failed: %v", err)
+	}
+	if len(swept) != 1 {
+		t.Fatalf("expected 1 swept worktree, got %v", swept)
+	}
+
+	staleReal, _ := filepath.EvalSymlinks(staleDir)
+	sweptReal, _ := filepath.EvalSymlinks(swept[0])
+	if staleReal != sweptReal {
+		t.Fatalf("expected swept %s, got %s", staleReal, sweptReal)
+	}
+
+	// Confirm worktree was removed
+	worktrees, _ := git.Worktrees(ctx, repoDir)
+	for _, wt := range worktrees {
+		if wt.Path == staleDir {
+			t.Errorf("stale worktree was not removed")
+		}
 	}
 }

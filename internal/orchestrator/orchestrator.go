@@ -63,6 +63,7 @@ const (
 type Options struct {
 	Concurrency    int
 	WorktreeDir    string
+	WorktreeTTL    time.Duration
 	LogDir         string
 	AgentPrompt    string
 	RecoveryPolicy RecoveryPolicy
@@ -76,6 +77,15 @@ func WithConcurrency(n int) Option {
 	return func(o *Options) {
 		if n > 0 {
 			o.Concurrency = n
+		}
+	}
+}
+
+// WithWorktreeTTL sets the maximum lifetime before stale worktrees are swept.
+func WithWorktreeTTL(ttl time.Duration) Option {
+	return func(o *Options) {
+		if ttl > 0 {
+			o.WorktreeTTL = ttl
 		}
 	}
 }
@@ -121,6 +131,7 @@ func New(store Store, client GitHubClient, escalator Escalator, opts ...Option) 
 	options := Options{
 		Concurrency: 1,
 		WorktreeDir: filepath.Join(os.TempDir(), "pr-triage-worktrees"),
+		WorktreeTTL: 72 * time.Hour,
 		LogDir:      filepath.Join(os.TempDir(), "pr-triage-logs"),
 		AgentPrompt: "Review and fix issues identified in the CI report.",
 	}
@@ -136,6 +147,15 @@ func New(store Store, client GitHubClient, escalator Escalator, opts ...Option) 
 		sem:       make(chan struct{}, options.Concurrency),
 		opts:      options,
 	}
+}
+
+// SweepStaleWorktrees sweeps worktrees in repoDir older than WorktreeTTL.
+func (o *Orchestrator) SweepStaleWorktrees(ctx context.Context, repoDir string) ([]string, error) {
+	if repoDir == "" {
+		localPath, _ := filepath.Abs(".")
+		repoDir = localPath
+	}
+	return git.WorktreeSweep(ctx, repoDir, o.opts.WorktreeTTL)
 }
 
 // Start listens to report_ready events from eventCh until ctx is cancelled or Stop is called.
@@ -160,12 +180,19 @@ func (o *Orchestrator) Start(ctx context.Context, eventCh <-chan poller.ReportRe
 	// Reconcile and recover any stranded runs left in agent_running state on startup
 	_ = o.Recover(ctx)
 
+	// Periodic worktree sweep ticker
+	sweepTicker := time.NewTicker(1 * time.Hour)
+	defer sweepTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-o.stopCh:
 			return nil
+		case <-sweepTicker.C:
+			localRepo, _ := filepath.Abs(".")
+			_, _ = o.SweepStaleWorktrees(ctx, localRepo)
 		case event, ok := <-eventCh:
 			if !ok {
 				return nil
@@ -375,6 +402,10 @@ func (o *Orchestrator) executeRun(
 		Workdir:   worktreePath,
 		Limits: runtime.Limits{
 			Timeout: timeout,
+		},
+		PIDCallback: func(pid int) {
+			runRecord.PID = &pid
+			_ = o.store.UpdateRun(runRecord)
 		},
 	}
 
