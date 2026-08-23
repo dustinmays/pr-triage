@@ -5,11 +5,27 @@ package db
 import (
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 
 	"github.com/jmoiron/sqlx"
 
 	_ "modernc.org/sqlite" // registers the "sqlite" driver
 )
+
+// DefaultDBDir returns the default directory (~/.pr-triage) for data storage.
+func DefaultDBDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ".pr-triage"
+	}
+	return filepath.Join(home, ".pr-triage")
+}
+
+// DefaultDBPath returns ~/.pr-triage/pr-triage.db.
+func DefaultDBPath() string {
+	return filepath.Join(DefaultDBDir(), "pr-triage.db")
+}
 
 // schemaVersion is the target schema version. Bump it by one whenever a new
 // migration block is appended to migrate, and never edit a past migration
