@@ -112,3 +112,24 @@ func TestResultValidateRequiresCostBasis(t *testing.T) {
 		t.Fatal("expected Validate to reject empty CostBasis, got nil error")
 	}
 }
+
+func TestValidateKnownAndUnknown(t *testing.T) {
+	resetRegistry(t)
+
+	if err := Validate(DefaultName); err != nil {
+		t.Errorf("Validate(%q) returned unexpected error: %v", DefaultName, err)
+	}
+
+	if err := Validate(""); err == nil {
+		t.Error("Validate(\"\") expected error, got nil")
+	}
+
+	if err := Validate("non-existent-runtime"); err == nil {
+		t.Error("Validate(\"non-existent-runtime\") expected error, got nil")
+	}
+
+	names := KnownNames()
+	if len(names) == 0 {
+		t.Error("KnownNames() returned empty slice")
+	}
+}
