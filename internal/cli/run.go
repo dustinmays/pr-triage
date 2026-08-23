@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dustinmays/pr-triage/internal/auth"
+	"github.com/dustinmays/pr-triage/internal/daemon"
 	"github.com/dustinmays/pr-triage/internal/db"
 	"github.com/dustinmays/pr-triage/internal/escalate"
 	"github.com/dustinmays/pr-triage/internal/github"
@@ -24,6 +25,12 @@ var runCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
+
+		lock, err := daemon.AcquireLock(daemon.DefaultStateDir())
+		if err != nil {
+			return err
+		}
+		defer lock.Release()
 
 		database, err := db.Open(db.DefaultDBPath())
 		if err != nil {
