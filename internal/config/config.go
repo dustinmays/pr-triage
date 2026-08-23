@@ -44,6 +44,7 @@ type Config struct {
 	BaseRef      string             `yaml:"base_ref,omitempty"`
 	PollInterval string             `yaml:"poll_interval,omitempty"`
 	Timeout      string             `yaml:"timeout,omitempty"`
+	WorktreeTTL  string             `yaml:"worktree_ttl,omitempty"`
 	GitHubUser   string             `yaml:"github_user,omitempty"`
 	Runtime      string             `yaml:"runtime,omitempty"`
 	Model        string             `yaml:"model,omitempty"`
@@ -57,6 +58,7 @@ func DefaultConfig() *Config {
 		BaseRef:      "main",
 		PollInterval: "5m",
 		Timeout:      "10m",
+		WorktreeTTL:  "72h",
 		SignalTiers: SignalTiersConfig{
 			DefaultTier: "routine",
 			Rules: []SignalTierRule{

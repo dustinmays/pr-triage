@@ -111,4 +111,6 @@ type Invocation struct {
 	Workdir string
 	// Limits are the constraints to apply to the run.
 	Limits Limits
+	// PIDCallback is called immediately upon process launch with the child PID.
+	PIDCallback func(pid int)
 }

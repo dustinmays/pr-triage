@@ -392,3 +392,41 @@ func TestRun_CommandNotFound(t *testing.T) {
 		t.Fatalf("expected error for nonexistent binary, got nil")
 	}
 }
+
+func TestRun_PIDCallbackAndTimeout(t *testing.T) {
+	tmpDir := t.TempDir()
+	mockBin := filepath.Join(tmpDir, "mock-claude-sleep")
+	script := `#!/bin/sh
+sleep 10
+`
+	if err := os.WriteFile(mockBin, []byte(script), 0o755); err != nil {
+		t.Fatalf("failed to create mock script: %v", err)
+	}
+
+	adapter := &Adapter{Binary: mockBin}
+
+	var capturedPID int
+	inv := runtime.Invocation{
+		Prompt: "sleep test",
+		Limits: runtime.Limits{
+			Timeout: 100 * time.Millisecond,
+		},
+		PIDCallback: func(pid int) {
+			capturedPID = pid
+		},
+	}
+
+	start := time.Now()
+	exitCode, err := adapter.Run(context.Background(), inv, nil)
+	elapsed := time.Since(start)
+
+	if capturedPID <= 0 {
+		t.Errorf("expected PID callback to receive valid PID, got %d", capturedPID)
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("timeout did not terminate process in time: %v", elapsed)
+	}
+	if err == nil && exitCode == 0 {
+		t.Errorf("expected timeout failure, got success")
+	}
+}

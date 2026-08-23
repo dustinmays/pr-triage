@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Run executes a git command in the given directory and returns trimmed stdout.
@@ -123,6 +125,42 @@ func CommitAndPush(ctx context.Context, dir, remoteBranch, commitMsg string) (st
 		}
 	}
 	return headSHA, nil
+}
+
+// WorktreeSweep finds worktrees in repoDir older than maxAge and removes them
+// via WorktreeRemove (fallback prune), avoiding raw rm -rf.
+func WorktreeSweep(ctx context.Context, repoDir string, maxAge time.Duration) ([]string, error) {
+	if maxAge <= 0 {
+		maxAge = 72 * time.Hour
+	}
+
+	worktrees, err := Worktrees(ctx, repoDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var swept []string
+	now := time.Now()
+
+	for _, wt := range worktrees {
+		if wt.IsMain || wt.Path == "" {
+			continue
+		}
+
+		info, err := os.Stat(wt.Path)
+		if err != nil {
+			_ = WorktreePrune(ctx, repoDir)
+			continue
+		}
+
+		if now.Sub(info.ModTime()) > maxAge {
+			if err := WorktreeRemove(ctx, repoDir, wt.Path); err == nil {
+				swept = append(swept, wt.Path)
+			}
+		}
+	}
+
+	return swept, nil
 }
 
 // ResolveRepoPath finds the local git repository root for a repo record or working directory.
