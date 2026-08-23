@@ -51,12 +51,21 @@ type ConfigLoader interface {
 	Load(configPath string) (*config.Config, error)
 }
 
+// RecoveryPolicy determines how stranded runs are handled on startup.
+type RecoveryPolicy string
+
+const (
+	RecoveryMarkFailed RecoveryPolicy = "mark-failed"
+	RecoveryRetry      RecoveryPolicy = "retry"
+)
+
 // Options configures the Orchestrator.
 type Options struct {
-	Concurrency int
-	WorktreeDir string
-	LogDir      string
-	AgentPrompt string
+	Concurrency    int
+	WorktreeDir    string
+	LogDir         string
+	AgentPrompt    string
+	RecoveryPolicy RecoveryPolicy
 }
 
 // Option is a functional option for Orchestrator.
@@ -67,6 +76,15 @@ func WithConcurrency(n int) Option {
 	return func(o *Options) {
 		if n > 0 {
 			o.Concurrency = n
+		}
+	}
+}
+
+// WithRecoveryPolicy sets the recovery policy for stranded runs on restart.
+func WithRecoveryPolicy(p RecoveryPolicy) Option {
+	return func(o *Options) {
+		if p != "" {
+			o.RecoveryPolicy = p
 		}
 	}
 }
@@ -139,6 +157,9 @@ func (o *Orchestrator) Start(ctx context.Context, eventCh <-chan poller.ReportRe
 		close(o.doneCh)
 	}()
 
+	// Reconcile and recover any stranded runs left in agent_running state on startup
+	_ = o.Recover(ctx)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -167,6 +188,50 @@ func (o *Orchestrator) Stop() {
 	o.mu.Unlock()
 
 	<-o.doneCh
+}
+
+// Recover cleans up stale worktrees/processes and reconciles runs left in agent_running state
+// after a daemon crash or abrupt kill.
+func (o *Orchestrator) Recover(ctx context.Context) error {
+	strandedRuns, err := o.store.RunsInState(poller.StateAgentRunning)
+	if err != nil {
+		return fmt.Errorf("orchestrator: query stranded runs: %w", err)
+	}
+
+	for i := range strandedRuns {
+		run := strandedRuns[i]
+
+		// 1. Terminate orphaned PID if still running
+		if run.PID != nil && *run.PID > 0 {
+			if proc, err := os.FindProcess(*run.PID); err == nil && proc != nil {
+				_ = proc.Kill()
+			}
+		}
+
+		// 2. Cleanup stale worktree if present
+		if run.WorktreePath != "" {
+			if _, err := os.Stat(run.WorktreePath); err == nil {
+				localRepoPath, _ := filepath.Abs(".")
+				_ = git.WorktreeRemove(ctx, localRepoPath, run.WorktreePath)
+			}
+		}
+
+		// 3. Reconcile database state based on recovery policy
+		now := time.Now().UTC().Format(time.RFC3339)
+		run.FinishedAt = &now
+
+		if o.opts.RecoveryPolicy == RecoveryRetry {
+			run.Status = "failed"
+			run.StopReason = "interrupted by daemon crash/restart (re-enqueued)"
+			_ = o.store.UpdateRun(&run)
+		} else {
+			run.Status = "failed"
+			run.StopReason = "interrupted by daemon crash/restart"
+			_ = o.store.UpdateRun(&run)
+		}
+	}
+
+	return nil
 }
 
 // HandleReportReady processes a single report_ready event end-to-end.

@@ -338,6 +338,75 @@ routing:
 	}
 }
 
+func TestOrchestrator_Recover_StrandedRuns(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer func() { _ = database.Close() }()
+
+	store := db.NewStore(database)
+	repo, _ := store.UpsertRepo(&db.Repo{
+		Owner:        "dustinmays",
+		Name:         "pr-triage",
+		BaseRef:      "main",
+		PollInterval: "5m",
+		ConfigPath:   "test.yaml",
+	})
+
+	pr, _ := store.UpsertPRState(repo.ID, 999, "sha-crash", nil, "agent_running")
+
+	fakeWorktreeDir := filepath.Join(tmpDir, "stale-worktree")
+	_ = os.MkdirAll(fakeWorktreeDir, 0755)
+
+	run := &db.Run{
+		PRID:         pr.ID,
+		HeadSHA:      "sha-crash",
+		RiskTier:     "routine",
+		Runtime:      "fake-mock-rt",
+		Model:        "test-model",
+		ModelSource:  "routing",
+		CostUSD:      0.0,
+		CostBasis:    "unavailable",
+		Status:       "agent_running",
+		WorktreePath: fakeWorktreeDir,
+	}
+	recordedRun, err := store.RecordRun(run)
+	if err != nil {
+		t.Fatalf("RecordRun failed: %v", err)
+	}
+
+	ghMock := newMockGHClient()
+	escalator := escalate.New(store, ghMock)
+	orch := orchestrator.New(store, ghMock, escalator)
+
+	ctx := context.Background()
+	if err := orch.Recover(ctx); err != nil {
+		t.Fatalf("Recover failed: %v", err)
+	}
+
+	runs, err := store.RunsInState("agent_running")
+	if err != nil {
+		t.Fatalf("RunsInState failed: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("expected 0 agent_running runs after recovery, got %d", len(runs))
+	}
+
+	failedRuns, err := store.RunsInState("failed")
+	if err != nil {
+		t.Fatalf("RunsInState failed: %v", err)
+	}
+	if len(failedRuns) != 1 || failedRuns[0].ID != recordedRun.ID {
+		t.Fatalf("expected 1 failed recovered run, got %v", failedRuns)
+	}
+	if failedRuns[0].StopReason != "interrupted by daemon crash/restart" {
+		t.Errorf("stop_reason = %q, want 'interrupted by daemon crash/restart'", failedRuns[0].StopReason)
+	}
+}
+
 // TestUnusedImports suppresses unused compiler warnings.
 func TestUnusedImports(t *testing.T) {
 	_ = json.Marshal
