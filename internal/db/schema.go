@@ -14,7 +14,7 @@ import (
 // schemaVersion is the target schema version. Bump it by one whenever a new
 // migration block is appended to migrate, and never edit a past migration
 // block after the fact (see docs/persistence-discipline.md).
-const schemaVersion = 1
+const schemaVersion = 2
 
 // Open opens (creating if necessary) the SQLite database at path, applies
 // the required pragmas, enforces single-writer discipline, and runs any
@@ -96,13 +96,57 @@ func migrate(db *sqlx.DB) error {
 		version = 1
 	}
 
-	// Example for the next migration:
-	// if version < 2 {
-	// 	if _, err := tx.Exec(`...`); err != nil {
-	// 		return fmt.Errorf("migration v2: %w", err)
-	// 	}
-	// 	version = 2
-	// }
+	if version < 2 {
+		if _, err := tx.Exec(`
+			CREATE TABLE IF NOT EXISTS repos (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				owner TEXT NOT NULL,
+				name TEXT NOT NULL,
+				base_ref TEXT NOT NULL,
+				poll_interval TEXT NOT NULL,
+				config_path TEXT NOT NULL,
+				created_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+
+			CREATE TABLE IF NOT EXISTS prs (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				repo_id INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+				number INTEGER NOT NULL,
+				head_sha TEXT NOT NULL,
+				last_run_id INTEGER,
+				state TEXT NOT NULL,
+				updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+				UNIQUE(repo_id, number)
+			);
+
+			CREATE TABLE IF NOT EXISTS runs (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				pr_id INTEGER NOT NULL REFERENCES prs(id) ON DELETE CASCADE,
+				head_sha TEXT NOT NULL,
+				ci_run_id INTEGER,
+				risk_tier TEXT NOT NULL,
+				runtime TEXT NOT NULL,
+				model TEXT NOT NULL,
+				model_source TEXT NOT NULL,
+				cost_usd REAL NOT NULL DEFAULT 0.0,
+				cost_basis TEXT NOT NULL,
+				turns INTEGER NOT NULL DEFAULT 0,
+				status TEXT NOT NULL,
+				stop_reason TEXT NOT NULL DEFAULT '',
+				pid INTEGER,
+				log_path TEXT NOT NULL DEFAULT '',
+				worktree_path TEXT NOT NULL DEFAULT '',
+				started_at TEXT NOT NULL DEFAULT (datetime('now')),
+				finished_at TEXT
+			);
+
+			CREATE INDEX IF NOT EXISTS idx_prs_repo_id ON prs(repo_id);
+			CREATE INDEX IF NOT EXISTS idx_runs_pr_id ON runs(pr_id);
+		`); err != nil {
+			return fmt.Errorf("migration v2: %w", err)
+		}
+		version = 2
+	}
 
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", version)); err != nil {
 		return fmt.Errorf("set user_version: %w", err)
