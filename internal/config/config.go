@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,16 +13,42 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/dustinmays/pr-triage/internal/report"
 )
+
+// ErrUnmappedTier is returned when a risk tier has no matching entry in the routing table.
+var ErrUnmappedTier = errors.New("config: unmapped risk tier")
+
+// SignalTierRule defines a risk tier mapped from one or more signal IDs.
+type SignalTierRule struct {
+	Tier    string   `yaml:"tier" json:"tier"`
+	Signals []string `yaml:"signals" json:"signals"`
+}
+
+// SignalTiersConfig configures signal classification rules and default tier.
+type SignalTiersConfig struct {
+	DefaultTier string           `yaml:"default_tier,omitempty" json:"default_tier,omitempty"`
+	Rules       []SignalTierRule `yaml:"rules,omitempty" json:"rules,omitempty"`
+}
+
+// Routing defines the execution runtime, model, and agent definition for a risk tier.
+type Routing struct {
+	Runtime  string `yaml:"runtime" json:"runtime"`
+	Model    string `yaml:"model" json:"model"`
+	AgentDef string `yaml:"agent_def,omitempty" json:"agent_def,omitempty"`
+}
 
 // Config represents the per-repository or global pr-triage configuration.
 type Config struct {
-	BaseRef      string `yaml:"base_ref,omitempty"`
-	PollInterval string `yaml:"poll_interval,omitempty"`
-	Timeout      string `yaml:"timeout,omitempty"`
-	GitHubUser   string `yaml:"github_user,omitempty"`
-	Runtime      string `yaml:"runtime,omitempty"`
-	Model        string `yaml:"model,omitempty"`
+	BaseRef      string             `yaml:"base_ref,omitempty"`
+	PollInterval string             `yaml:"poll_interval,omitempty"`
+	Timeout      string             `yaml:"timeout,omitempty"`
+	GitHubUser   string             `yaml:"github_user,omitempty"`
+	Runtime      string             `yaml:"runtime,omitempty"`
+	Model        string             `yaml:"model,omitempty"`
+	SignalTiers  SignalTiersConfig  `yaml:"signal_tiers,omitempty"`
+	Routing      map[string]Routing `yaml:"routing,omitempty"`
 }
 
 // DefaultConfig returns default configuration values.
@@ -30,7 +57,104 @@ func DefaultConfig() *Config {
 		BaseRef:      "main",
 		PollInterval: "5m",
 		Timeout:      "10m",
+		SignalTiers: SignalTiersConfig{
+			DefaultTier: "routine",
+			Rules: []SignalTierRule{
+				{
+					Tier: "critical",
+					Signals: []string{
+						"schema_changed_without_migration",
+						"migration_history_rewritten",
+					},
+				},
+				{
+					Tier: "high",
+					Signals: []string{
+						"destructive_db_operation",
+						"auth_logic_changed",
+					},
+				},
+				{
+					Tier: "medium",
+					Signals: []string{
+						"api_contract_break",
+						"adr_modified",
+					},
+				},
+			},
+		},
+		Routing: map[string]Routing{
+			"routine": {
+				Runtime:  "claude-code",
+				Model:    "claude-3-5-haiku",
+				AgentDef: "default",
+			},
+			"medium": {
+				Runtime:  "claude-code",
+				Model:    "claude-3-7-sonnet",
+				AgentDef: "default",
+			},
+			"high": {
+				Runtime:  "claude-code",
+				Model:    "claude-3-7-sonnet",
+				AgentDef: "senior-review",
+			},
+			"critical": {
+				Runtime:  "claude-code",
+				Model:    "claude-3-7-opus",
+				AgentDef: "security-expert",
+			},
+		},
 	}
+}
+
+// Classify determines the risk tier of a report based on configured SignalTiers.
+// If report is nil or has no matching present signals, DefaultTier (or "routine") is returned.
+func (c *Config) Classify(rep *report.Report) string {
+	defaultTier := c.SignalTiers.DefaultTier
+	if defaultTier == "" {
+		defaultTier = "routine"
+	}
+
+	if rep == nil || len(rep.Signals) == 0 {
+		return defaultTier
+	}
+
+	presentSignals := make(map[string]bool)
+	for _, sig := range rep.Signals {
+		if sig.Present {
+			presentSignals[sig.ID] = true
+		}
+	}
+
+	if len(presentSignals) == 0 {
+		return defaultTier
+	}
+
+	for _, rule := range c.SignalTiers.Rules {
+		for _, sigID := range rule.Signals {
+			if presentSignals[sigID] {
+				return rule.Tier
+			}
+		}
+	}
+
+	return defaultTier
+}
+
+// Route maps a risk tier to its configured {runtime, model, agent_def} triple.
+// If the tier is unmapped or unknown, it returns ErrUnmappedTier.
+func (c *Config) Route(tier string) (Routing, error) {
+	if c.Routing == nil {
+		return Routing{}, fmt.Errorf("%w: %s", ErrUnmappedTier, tier)
+	}
+
+	r, ok := c.Routing[tier]
+	if !ok || (r.Runtime == "" && r.Model == "") {
+		return Routing{}, fmt.Errorf("%w: %s", ErrUnmappedTier, tier)
+	}
+
+	return r, nil
 }
 
 // Load loads configuration from a YAML file.

@@ -1,9 +1,13 @@
 package config
 
 import (
+	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/dustinmays/pr-triage/internal/report"
 )
 
 func TestConfigLoadAndSave(t *testing.T) {
@@ -30,6 +34,133 @@ func TestConfigLoadAndSave(t *testing.T) {
 
 	if loaded.BaseRef != cfg.BaseRef || loaded.PollInterval != cfg.PollInterval || loaded.Timeout != cfg.Timeout || loaded.GitHubUser != cfg.GitHubUser || loaded.Runtime != cfg.Runtime || loaded.Model != cfg.Model {
 		t.Fatalf("loaded config %+v does not match saved %+v", loaded, cfg)
+	}
+}
+
+func TestClassifyAndRoute_Fixtures(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// 1. Valid report fixture (all present: false) -> routine tier
+	validData, err := os.ReadFile(filepath.Join("..", "..", "testdata", "reports", "valid.json"))
+	if err != nil {
+		t.Fatalf("read valid.json: %v", err)
+	}
+	validRep, err := report.ParseAndValidate(validData)
+	if err != nil {
+		t.Fatalf("parse valid.json: %v", err)
+	}
+
+	tier := cfg.Classify(validRep)
+	if tier != "routine" {
+		t.Errorf("cfg.Classify(validRep) = %q, want %q", tier, "routine")
+	}
+
+	routing, err := cfg.Route(tier)
+	if err != nil {
+		t.Fatalf("cfg.Route(%q) failed: %v", tier, err)
+	}
+	if routing.Runtime != "claude-code" || routing.Model != "claude-3-5-haiku" {
+		t.Errorf("unexpected routing for routine tier: %+v", routing)
+	}
+
+	// 2. High risk report fixture (schema_changed_without_migration present) -> critical tier
+	highRiskData, err := os.ReadFile(filepath.Join("..", "..", "testdata", "reports", "high-risk.json"))
+	if err != nil {
+		t.Fatalf("read high-risk.json: %v", err)
+	}
+	highRiskRep, err := report.ParseAndValidate(highRiskData)
+	if err != nil {
+		t.Fatalf("parse high-risk.json: %v", err)
+	}
+
+	highTier := cfg.Classify(highRiskRep)
+	if highTier != "critical" {
+		t.Errorf("cfg.Classify(highRiskRep) = %q, want %q", highTier, "critical")
+	}
+
+	highRouting, err := cfg.Route(highTier)
+	if err != nil {
+		t.Fatalf("cfg.Route(%q) failed: %v", highTier, err)
+	}
+	if highRouting.Runtime != "claude-code" || highRouting.Model != "claude-3-7-opus" || highRouting.AgentDef != "security-expert" {
+		t.Errorf("unexpected routing for critical tier: %+v", highRouting)
+	}
+
+	// 3. Unmapped tier -> ErrUnmappedTier
+	_, err = cfg.Route("unknown-tier")
+	if !errors.Is(err, ErrUnmappedTier) {
+		t.Errorf("expected ErrUnmappedTier for unknown tier, got %v", err)
+	}
+}
+
+func TestSignalTiers_CustomYAMLReload(t *testing.T) {
+	customYAML := `
+signal_tiers:
+  default_tier: standard
+  rules:
+    - tier: emergency
+      signals:
+        - destructive_db_operation
+    - tier: caution
+      signals:
+        - adr_modified
+
+routing:
+  standard:
+    runtime: opencode
+    model: standard-model
+    agent_def: standard-agent
+  caution:
+    runtime: opencode
+    model: careful-model
+    agent_def: review-agent
+  emergency:
+    runtime: claude-code
+    model: claude-3-7-sonnet
+    agent_def: emergency-fixer
+`
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(customYAML), 0644); err != nil {
+		t.Fatalf("write custom yaml: %v", err)
+	}
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load custom config: %v", err)
+	}
+
+	// Test default classification
+	repNone := &report.Report{
+		Signals: []report.Signal{
+			{ID: "other_signal", Present: false},
+		},
+	}
+	if got := cfg.Classify(repNone); got != "standard" {
+		t.Errorf("Classify(repNone) = %q, want standard", got)
+	}
+
+	// Test emergency classification
+	repEmergency := &report.Report{
+		Signals: []report.Signal{
+			{ID: "destructive_db_operation", Present: true},
+		},
+	}
+	if got := cfg.Classify(repEmergency); got != "emergency" {
+		t.Errorf("Classify(repEmergency) = %q, want emergency", got)
+	}
+
+	rEmergency, err := cfg.Route("emergency")
+	if err != nil {
+		t.Fatalf("Route(emergency) error: %v", err)
+	}
+	if rEmergency.Runtime != "claude-code" || rEmergency.Model != "claude-3-7-sonnet" || rEmergency.AgentDef != "emergency-fixer" {
+		t.Errorf("unexpected routing: %+v", rEmergency)
+	}
+
+	// Unmapped tier
+	if _, err := cfg.Route("nonexistent"); !errors.Is(err, ErrUnmappedTier) {
+		t.Errorf("expected ErrUnmappedTier, got %v", err)
 	}
 }
 
