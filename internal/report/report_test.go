@@ -192,6 +192,15 @@ func TestFetchAndValidate_HTTPMock(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id": 104,
 			})
+		case "/repos/owner/repo/check-runs/105":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": 105,
+				"output": map[string]any{
+					"title":   "Valid Report in Text Field",
+					"summary": "",
+					"text":    string(validData),
+				},
+			})
 		default:
 			http.NotFound(w, r)
 		}
@@ -208,6 +217,15 @@ func TestFetchAndValidate_HTTPMock(t *testing.T) {
 	}
 	if rep.PR.Number != 83 {
 		t.Errorf("rep.PR.Number = %d, want 83", rep.PR.Number)
+	}
+
+	// 105: Valid report in Text field (fallback when summary is empty)
+	repText, err := report.FetchAndValidate(ctx, client, "owner", "repo", 105)
+	if err != nil {
+		t.Fatalf("fetch 105 failed: %v", err)
+	}
+	if repText.PR.Number != 83 {
+		t.Errorf("repText.PR.Number = %d, want 83", repText.PR.Number)
 	}
 
 	// 101: Malformed report

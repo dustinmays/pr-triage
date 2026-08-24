@@ -1,0 +1,171 @@
+# Layer 2 — the deterministic pre-scan. It reports facts. It never blocks.
+#
+# scripts/pr-prescan.sh emits JSON with no severity, no score, and no verdict. A
+# later triage agent reads that JSON and decides what the facts mean. This job
+# exits 0 even when the script fails, so a scanner bug can never fail a build.
+# Only ci.yml gates.
+#
+# The JSON is published as:
+# 1. A Check Run named "pr-prescan-report" on the PR head SHA with output.summary
+#    carrying the raw report JSON (read directly by the pr-triage daemon).
+# 2. A build artifact named "pr-prescan".
+# 3. Printed to the job summary.
+# 4. A PR comment carrying the `<!-- prescan:v1 -->` marker for local/manual CLI triage.
+
+name: PR pre-scan
+
+on:
+  pull_request:
+    branches: [main, 'chunk/**', 'epic/**']
+
+permissions: {}
+
+concurrency:
+  group: pr-prescan-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-prescan:
+    name: pr-prescan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # write: post/update PR comment and publish check run
+      pull-requests: write
+      checks: write
+      # gh pr view --json statusCheckRollup pulls check runs, commit statuses,
+      # and the workflow run behind each check suite. All three scopes are needed.
+      statuses: read
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Run the pre-scan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          mkdir -p prescan
+
+          if bash scripts/pr-prescan.sh "$PR_NUMBER" \
+               --repo "$GH_REPO" \
+               --out prescan/pr-prescan.json; then
+            echo "pre-scan finished"
+          else
+            code=$?
+            echo "pr-prescan.sh exited $code; publishing an error document" >&2
+            jq -n --argjson number "$PR_NUMBER" --arg code "$code" \
+              '{ schema_version: 1,
+                 pr: { number: $number, title: "unknown", base: "unknown", head: "unknown" },
+                 ci: { status: "none", failing_checks: [] },
+                 stack: {},
+                 diff: {},
+                 signals: [],
+                 error: ("pr-prescan.sh exited " + $code) }' \
+              >prescan/pr-prescan.json
+          fi
+
+      - name: Publish Check Run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          SUMMARY_PAYLOAD="$(cat prescan/pr-prescan.json)"
+          PAYLOAD_FILE="$(mktemp)"
+
+          if [ "${#SUMMARY_PAYLOAD}" -le 65000 ]; then
+            jq -n \
+              --arg name "pr-prescan-report" \
+              --arg head_sha "$HEAD_SHA" \
+              --arg title "PR pre-scan report (v1)" \
+              --rawfile summary prescan/pr-prescan.json \
+              '{
+                name: $name,
+                head_sha: $head_sha,
+                status: "completed",
+                conclusion: "neutral",
+                output: {
+                  title: $title,
+                  summary: $summary
+                }
+              }' > "$PAYLOAD_FILE"
+          else
+            jq -n \
+              --arg name "pr-prescan-report" \
+              --arg head_sha "$HEAD_SHA" \
+              --arg title "PR pre-scan report (v1)" \
+              --rawfile text prescan/pr-prescan.json \
+              '{
+                name: $name,
+                head_sha: $head_sha,
+                status: "completed",
+                conclusion: "neutral",
+                output: {
+                  title: $title,
+                  summary: "",
+                  text: $text
+                }
+              }' > "$PAYLOAD_FILE"
+          fi
+
+          gh api -X POST "repos/$GH_REPO/check-runs" \
+            --input "$PAYLOAD_FILE" \
+            -H "Accept: application/vnd.github+json" || echo "Warning: failed to publish check run" >&2
+
+      - name: Publish the scan JSON
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: pr-prescan
+          path: prescan/pr-prescan.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Print the scan to the job summary
+        run: |
+          {
+            echo '### PR pre-scan'
+            echo
+            echo '```json'
+            cat prescan/pr-prescan.json
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Post or update the pre-scan comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          marker='<!-- prescan:v1 -->'
+          body_file="$(mktemp)"
+
+          {
+            echo "$marker"
+            echo
+            echo "**Pre-scan complete.** To triage, run:"
+            echo
+            echo '```bash'
+            echo "pr-triage triage $PR_NUMBER"
+            echo '```'
+            echo
+            echo '```json'
+            cat prescan/pr-prescan.json
+            echo '```'
+          } >"$body_file"
+
+          existing_id="$(gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" --paginate \
+            --jq '[.[] | select(.body | startswith("<!-- prescan:v1 -->"))][0].id // empty')"
+
+          if [ -n "$existing_id" ]; then
+            gh api -X PATCH "repos/$GH_REPO/issues/comments/$existing_id" -F body=@"$body_file"
+          else
+            gh api -X POST "repos/$GH_REPO/issues/$PR_NUMBER/comments" -F body=@"$body_file"
+          fi
