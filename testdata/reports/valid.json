@@ -1,34 +1,46 @@
 {
   "schema_version": 1,
   "pr": {
-    "number": 42,
-    "title": "feat: add user profile picture upload endpoint",
-    "base": "main",
-    "head": "feat/profile-pictures",
-    "target_kind": "feature",
+    "number": 83,
+    "title": "Post the pre-scan report as a PR comment with a ready-to-run triage command",
+    "base": "chunk/pr-triage-v0",
+    "head": "issue-59-prescan-trigger-comment",
+    "target_kind": "implementation",
     "issue_refs": [
-      "#123",
-      "#456"
+      59,
+      80,
+      81
     ]
   },
   "ci": {
-    "status": "passed",
+    "status": "passing",
     "failing_checks": []
   },
   "stack": {
-    "language": "go",
-    "framework": "chi",
-    "runtime": "go1.25"
+    "framework": "vite",
+    "orm": "drizzle",
+    "package_manager": "pnpm",
+    "linter": "biome@2"
   },
   "diff": {
     "files_changed": 4,
-    "additions": 180,
+    "insertions": 180,
     "deletions": 12,
-    "summary": "Adds upload handler and image resize utility"
+    "source_files": 3,
+    "generated_files": 1,
+    "source_insertions": 150,
+    "top_level_dirs": [
+      "scripts",
+      ".github"
+    ],
+    "largest_file": {
+      "path": "scripts/pr-prescan.sh",
+      "changed": 120
+    }
   },
   "signals": [
     {
-      "id": "schema_changed_without_migration",
+      "id": "migration_sql_added",
       "present": false,
       "evidence": []
     },
@@ -38,22 +50,51 @@
       "evidence": []
     },
     {
-      "id": "adr_modified",
+      "id": "schema_changed_without_migration",
       "present": false,
       "evidence": []
     },
     {
-      "id": "destructive_db_operation",
+      "id": "dependency_manifest_changed",
       "present": false,
       "evidence": []
     },
     {
-      "id": "auth_logic_changed",
+      "id": "install_execution_allowed",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "test_files_deleted",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "tests_skipped_added",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "safeguard_config_changed",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "suppressions_added",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "workflow_changed",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "stack_choice_changed",
       "present": false,
       "evidence": []
     }
   ],
-  "notes": [
-    "Pre-scan completed successfully in CI pipeline"
-  ]
+  "notes": [],
+  "chunk": null
 }

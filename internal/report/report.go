@@ -33,16 +33,17 @@ type Report struct {
 	Diff          DiffInfo       `json:"diff,omitempty"`
 	Signals       []Signal       `json:"signals"`
 	Notes         []string       `json:"notes,omitempty"`
+	Chunk         *ChunkInfo     `json:"chunk,omitempty"`
 }
 
 // PRInfo represents pull request metadata in the report.
 type PRInfo struct {
-	Number     int      `json:"number"`
-	Title      string   `json:"title"`
-	Base       string   `json:"base"`
-	Head       string   `json:"head"`
-	TargetKind string   `json:"target_kind,omitempty"`
-	IssueRefs  []string `json:"issue_refs,omitempty"`
+	Number     int    `json:"number"`
+	Title      string `json:"title"`
+	Base       string `json:"base"`
+	Head       string `json:"head"`
+	TargetKind string `json:"target_kind,omitempty"`
+	IssueRefs  []int  `json:"issue_refs,omitempty"`
 }
 
 // CIInfo represents CI execution status in the report.
@@ -51,19 +52,68 @@ type CIInfo struct {
 	FailingChecks []string `json:"failing_checks,omitempty"`
 }
 
+// LargestFileInfo represents metrics for the largest changed file.
+type LargestFileInfo struct {
+	Path    string `json:"path"`
+	Changed int    `json:"changed"`
+}
+
 // DiffInfo represents code change metrics in the report.
 type DiffInfo struct {
-	FilesChanged int    `json:"files_changed,omitempty"`
-	Additions    int    `json:"additions,omitempty"`
-	Deletions    int    `json:"deletions,omitempty"`
-	Summary      string `json:"summary,omitempty"`
+	FilesChanged     int              `json:"files_changed,omitempty"`
+	Insertions       int              `json:"insertions,omitempty"`
+	Additions        int              `json:"additions,omitempty"`
+	Deletions        int              `json:"deletions,omitempty"`
+	SourceFiles      int              `json:"source_files,omitempty"`
+	GeneratedFiles   int              `json:"generated_files,omitempty"`
+	SourceInsertions int              `json:"source_insertions,omitempty"`
+	TopLevelDirs     []string         `json:"top_level_dirs,omitempty"`
+	LargestFile      *LargestFileInfo `json:"largest_file,omitempty"`
+	Summary          string           `json:"summary,omitempty"`
+}
+
+// Evidence represents a piece of evidence supporting a signal detection.
+type Evidence struct {
+	File   string `json:"file,omitempty"`
+	Line   *int   `json:"line,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// UnmarshalJSON unmarshals either an evidence object or a legacy plain string.
+func (e *Evidence) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		e.Detail = s
+		return nil
+	}
+	type Alias Evidence
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*e = Evidence(a)
+	return nil
 }
 
 // Signal represents a single detected architectural or risk signal.
 type Signal struct {
-	ID       string   `json:"id"`
-	Present  bool     `json:"present"`
-	Evidence []string `json:"evidence,omitempty"`
+	ID       string     `json:"id"`
+	Present  bool       `json:"present"`
+	Evidence []Evidence `json:"evidence,omitempty"`
+}
+
+// ChunkInfo represents metadata about pull requests merged into a chunk branch.
+type ChunkInfo struct {
+	Branch    string        `json:"branch,omitempty"`
+	MergedPRs []ChunkPRInfo `json:"merged_prs,omitempty"`
+}
+
+// ChunkPRInfo represents an individual PR merged into a chunk branch.
+type ChunkPRInfo struct {
+	Number           int    `json:"number"`
+	Title            string `json:"title,omitempty"`
+	IssueRefs        []int  `json:"issue_refs,omitempty"`
+	NeedsOwnerReview bool   `json:"needs_owner_review,omitempty"`
 }
 
 // CheckRunFetcher represents the interface to retrieve check run output.
@@ -75,6 +125,7 @@ type CheckRunFetcher interface {
 const RawReportSchemaJSON = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "CI PR Triage Report",
+  "description": "Pre-scan JSON report generated in CI/CD pipeline that triggers agent triage",
   "type": "object",
   "required": [
     "schema_version",
@@ -84,11 +135,12 @@ const RawReportSchemaJSON = `{
     "diff",
     "signals"
   ],
-  "additionalProperties": false,
+  "additionalProperties": true,
   "properties": {
     "schema_version": {
       "type": "integer",
-      "const": 1
+      "const": 1,
+      "description": "Schema version number (must be 1 for v1 reports)"
     },
     "pr": {
       "type": "object",
@@ -98,7 +150,7 @@ const RawReportSchemaJSON = `{
         "base",
         "head"
       ],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "number": {
           "type": "integer",
@@ -119,7 +171,7 @@ const RawReportSchemaJSON = `{
         "issue_refs": {
           "type": "array",
           "items": {
-            "type": "string"
+            "type": "integer"
           }
         }
       }
@@ -129,11 +181,11 @@ const RawReportSchemaJSON = `{
       "required": [
         "status"
       ],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "status": {
           "type": "string",
-          "enum": ["passed", "failed", "running", "skipped"]
+          "enum": ["none", "failing", "pending", "passing"]
         },
         "failing_checks": {
           "type": "array",
@@ -147,13 +199,22 @@ const RawReportSchemaJSON = `{
       "type": "object",
       "properties": {
         "language": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "framework": {
-          "type": "string"
+          "type": ["string", "null"]
+        },
+        "orm": {
+          "type": ["string", "null"]
+        },
+        "package_manager": {
+          "type": ["string", "null"]
+        },
+        "linter": {
+          "type": ["string", "null"]
         },
         "runtime": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "additionalProperties": true
@@ -165,6 +226,10 @@ const RawReportSchemaJSON = `{
           "type": "integer",
           "minimum": 0
         },
+        "insertions": {
+          "type": "integer",
+          "minimum": 0
+        },
         "additions": {
           "type": "integer",
           "minimum": 0
@@ -172,6 +237,37 @@ const RawReportSchemaJSON = `{
         "deletions": {
           "type": "integer",
           "minimum": 0
+        },
+        "source_files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generated_files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_insertions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "top_level_dirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "largest_file": {
+          "type": ["object", "null"],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "changed": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
         },
         "summary": {
           "type": "string"
@@ -187,7 +283,7 @@ const RawReportSchemaJSON = `{
           "id",
           "present"
         ],
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "id": {
             "type": "string",
@@ -199,7 +295,19 @@ const RawReportSchemaJSON = `{
           "evidence": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": ["object", "string"],
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": ["integer", "null"]
+                },
+                "detail": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
             }
           }
         }
@@ -210,6 +318,43 @@ const RawReportSchemaJSON = `{
       "items": {
         "type": "string"
       }
+    },
+    "chunk": {
+      "type": ["object", "null"],
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "merged_prs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "number"
+            ],
+            "properties": {
+              "number": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "title": {
+                "type": "string"
+              },
+              "issue_refs": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "needs_owner_review": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
     }
   }
 }`

@@ -30,22 +30,53 @@ func TestParseAndValidate_ValidReport(t *testing.T) {
 	if rep.SchemaVersion != 1 {
 		t.Errorf("rep.SchemaVersion = %d, want 1", rep.SchemaVersion)
 	}
-	if rep.PR.Number != 42 {
-		t.Errorf("rep.PR.Number = %d, want 42", rep.PR.Number)
+	if rep.PR.Number != 83 {
+		t.Errorf("rep.PR.Number = %d, want 83", rep.PR.Number)
 	}
-	if rep.PR.Title != "feat: add user profile picture upload endpoint" {
+	if rep.PR.Title != "Post the pre-scan report as a PR comment with a ready-to-run triage command" {
 		t.Errorf("unexpected PR title: %s", rep.PR.Title)
 	}
-	if rep.CI.Status != "passed" {
-		t.Errorf("rep.CI.Status = %s, want passed", rep.CI.Status)
+	if rep.CI.Status != "passing" {
+		t.Errorf("rep.CI.Status = %s, want passing", rep.CI.Status)
 	}
-	if len(rep.Signals) != 5 {
-		t.Errorf("len(rep.Signals) = %d, want 5", len(rep.Signals))
+	if len(rep.Signals) != 11 {
+		t.Errorf("len(rep.Signals) = %d, want 11", len(rep.Signals))
 	}
 	for _, sig := range rep.Signals {
 		if sig.Present {
 			t.Errorf("expected signal %s to be present:false in valid.json", sig.ID)
 		}
+	}
+}
+
+func TestParseAndValidate_ChunkCompletionReport(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "reports", "chunk-completion.json"))
+	if err != nil {
+		t.Fatalf("failed to read chunk-completion.json: %v", err)
+	}
+
+	rep, err := report.ParseAndValidate(data)
+	if err != nil {
+		t.Fatalf("expected chunk-completion report to validate, got error: %v", err)
+	}
+
+	if rep.SchemaVersion != 1 {
+		t.Errorf("rep.SchemaVersion = %d, want 1", rep.SchemaVersion)
+	}
+	if rep.PR.TargetKind != "chunk_completion" {
+		t.Errorf("rep.PR.TargetKind = %s, want chunk_completion", rep.PR.TargetKind)
+	}
+	if rep.Chunk == nil {
+		t.Fatalf("rep.Chunk is nil, want non-nil ChunkInfo")
+	}
+	if rep.Chunk.Branch != "chunk/pr-triage-v0" {
+		t.Errorf("rep.Chunk.Branch = %s, want chunk/pr-triage-v0", rep.Chunk.Branch)
+	}
+	if len(rep.Chunk.MergedPRs) != 2 {
+		t.Errorf("len(rep.Chunk.MergedPRs) = %d, want 2", len(rep.Chunk.MergedPRs))
+	}
+	if rep.Chunk.MergedPRs[0].Number != 83 {
+		t.Errorf("rep.Chunk.MergedPRs[0].Number = %d, want 83", rep.Chunk.MergedPRs[0].Number)
 	}
 }
 
@@ -175,8 +206,8 @@ func TestFetchAndValidate_HTTPMock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch 100 failed: %v", err)
 	}
-	if rep.PR.Number != 42 {
-		t.Errorf("rep.PR.Number = %d, want 42", rep.PR.Number)
+	if rep.PR.Number != 83 {
+		t.Errorf("rep.PR.Number = %d, want 83", rep.PR.Number)
 	}
 
 	// 101: Malformed report
