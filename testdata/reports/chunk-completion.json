@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 67,
+    "title": "Add the v0 PR review and triage system, and replace the Next.js skeleton with Vite",
+    "base": "main",
+    "head": "chunk/pr-triage-v0",
+    "target_kind": "chunk_completion",
+    "issue_refs": [
+      53,
+      54,
+      55,
+      56,
+      58,
+      59,
+      60,
+      61,
+      62,
+      63,
+      65,
+      66,
+      72
+    ]
+  },
+  "ci": {
+    "status": "passing",
+    "failing_checks": []
+  },
+  "stack": {
+    "framework": "vite",
+    "orm": "drizzle",
+    "package_manager": "pnpm",
+    "linter": "biome@2"
+  },
+  "diff": {
+    "files_changed": 47,
+    "insertions": 4836,
+    "deletions": 1567,
+    "source_files": 42,
+    "generated_files": 5,
+    "source_insertions": 2761,
+    "top_level_dirs": [
+      ".github",
+      "agents",
+      "docs",
+      "drizzle",
+      "scripts",
+      "src"
+    ],
+    "largest_file": {
+      "path": "pnpm-lock.yaml",
+      "changed": 2006
+    }
+  },
+  "signals": [
+    {
+      "id": "migration_sql_added",
+      "present": true,
+      "evidence": [
+        {
+          "file": "drizzle/0000_flimsy_reptil.sql",
+          "line": 1,
+          "detail": "CREATE TABLE \"notes\" ("
+        }
+      ]
+    },
+    {
+      "id": "migration_history_rewritten",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "schema_changed_without_migration",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "dependency_manifest_changed",
+      "present": true,
+      "evidence": [
+        {
+          "file": "package.json",
+          "line": null,
+          "detail": "+ dependencies \"drizzle-orm\": \"^0.45.2\""
+        }
+      ]
+    },
+    {
+      "id": "install_execution_allowed",
+      "present": true,
+      "evidence": [
+        {
+          "file": "pnpm-workspace.yaml",
+          "line": 8,
+          "detail": "esbuild"
+        }
+      ]
+    },
+    {
+      "id": "test_files_deleted",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "tests_skipped_added",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "safeguard_config_changed",
+      "present": true,
+      "evidence": [
+        {
+          "file": "biome.json",
+          "line": 1,
+          "detail": "+ {"
+        }
+      ]
+    },
+    {
+      "id": "suppressions_added",
+      "present": true,
+      "evidence": [
+        {
+          "file": "scripts/pr-prescan.sh",
+          "line": 824,
+          "detail": "+ SUPPRESS_RE='@ts-ignore|@ts-expect-error|@ts-nocheck|biome-ignore|(^|[^A-Za-z0-9_$])as any([^A-Za-z0-9_]|$)'"
+        }
+      ]
+    },
+    {
+      "id": "workflow_changed",
+      "present": true,
+      "evidence": [
+        {
+          "file": ".github/workflows/ci.yml",
+          "line": null,
+          "detail": "git status A"
+        }
+      ]
+    },
+    {
+      "id": "stack_choice_changed",
+      "present": true,
+      "evidence": [
+        {
+          "file": "package.json",
+          "line": null,
+          "detail": "framework: \"next\" -> \"vite\""
+        }
+      ]
+    }
+  ],
+  "notes": [],
+  "chunk": {
+    "branch": "chunk/pr-triage-v0",
+    "merged_prs": [
+      {
+        "number": 83,
+        "title": "Post the pre-scan report as a PR comment with a ready-to-run triage command",
+        "issue_refs": [
+          59,
+          80,
+          81
+        ],
+        "needs_owner_review": false
+      },
+      {
+        "number": 82,
+        "title": "Fix awk backslash-dot false positives in pr-prescan; clarify pr-triage.md",
+        "issue_refs": [
+          63,
+          67,
+          81,
+          83
+        ],
+        "needs_owner_review": false
+      }
+    ]
+  }
+}

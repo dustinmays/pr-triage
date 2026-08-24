@@ -35,6 +35,11 @@ func TestReportSchema_Fixtures(t *testing.T) {
 			wantValid: true,
 		},
 		{
+			name:      "chunk completion v1 report",
+			file:      filepath.Join("..", "testdata", "reports", "chunk-completion.json"),
+			wantValid: true,
+		},
+		{
 			name:      "malformed report (missing required fields / wrong types)",
 			file:      filepath.Join("..", "testdata", "reports", "malformed.json"),
 			wantValid: false,

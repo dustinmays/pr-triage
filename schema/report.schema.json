@@ -11,7 +11,7 @@
     "diff",
     "signals"
   ],
-  "additionalProperties": false,
+  "additionalProperties": true,
   "properties": {
     "schema_version": {
       "type": "integer",
@@ -26,7 +26,7 @@
         "base",
         "head"
       ],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "number": {
           "type": "integer",
@@ -47,7 +47,7 @@
         "issue_refs": {
           "type": "array",
           "items": {
-            "type": "string"
+            "type": "integer"
           }
         }
       }
@@ -57,11 +57,11 @@
       "required": [
         "status"
       ],
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "status": {
           "type": "string",
-          "enum": ["passed", "failed", "running", "skipped"]
+          "enum": ["none", "failing", "pending", "passing"]
         },
         "failing_checks": {
           "type": "array",
@@ -75,13 +75,22 @@
       "type": "object",
       "properties": {
         "language": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "framework": {
-          "type": "string"
+          "type": ["string", "null"]
+        },
+        "orm": {
+          "type": ["string", "null"]
+        },
+        "package_manager": {
+          "type": ["string", "null"]
+        },
+        "linter": {
+          "type": ["string", "null"]
         },
         "runtime": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "additionalProperties": true
@@ -93,6 +102,10 @@
           "type": "integer",
           "minimum": 0
         },
+        "insertions": {
+          "type": "integer",
+          "minimum": 0
+        },
         "additions": {
           "type": "integer",
           "minimum": 0
@@ -100,6 +113,37 @@
         "deletions": {
           "type": "integer",
           "minimum": 0
+        },
+        "source_files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generated_files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_insertions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "top_level_dirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "largest_file": {
+          "type": ["object", "null"],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "changed": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
         },
         "summary": {
           "type": "string"
@@ -115,7 +159,7 @@
           "id",
           "present"
         ],
-        "additionalProperties": false,
+        "additionalProperties": true,
         "properties": {
           "id": {
             "type": "string",
@@ -127,7 +171,19 @@
           "evidence": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": ["object", "string"],
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": ["integer", "null"]
+                },
+                "detail": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
             }
           }
         }
@@ -138,6 +194,43 @@
       "items": {
         "type": "string"
       }
+    },
+    "chunk": {
+      "type": ["object", "null"],
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "merged_prs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "number"
+            ],
+            "properties": {
+              "number": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "title": {
+                "type": "string"
+              },
+              "issue_refs": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              "needs_owner_review": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
     }
   }
 }
