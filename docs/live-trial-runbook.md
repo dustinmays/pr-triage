@@ -32,9 +32,17 @@ Inside the repository root (e.g. `/Users/dustin/repos/pr-triage`):
 # Build binary
 make build
 
-# Initialize configuration
-./bin/pr-triage init --base-ref "epic/pr-triage-poc" --user "dustinmays"
+# Initialize configuration (registers the repo + writes .pr-triage/config.yaml)
+./bin/pr-triage init \
+  --base-ref "epic/pr-triage-poc" \
+  --github-user "dustinmays" \
+  --runtime claude-code \
+  --model claude-haiku-4-5 \
+  --non-interactive
 ```
+
+> Note: the flag is `--github-user` (not `--user`). Owner/name are auto-detected
+> from the git remote; pass `--owner`/`--name` to override.
 
 This creates `.pr-triage/config.yaml`:
 ```yaml
@@ -62,7 +70,7 @@ signal_tiers:
 routing:
   routine:
     runtime: claude-code
-    model: claude-3-5-haiku
+    model: claude-haiku-4-5
     agent_def: review-agent
   escalate:
     runtime: escalate
@@ -75,9 +83,10 @@ routing:
 ```
 
 ### Step 2.2: Start the Daemon
-Run the daemon in foreground or background mode:
+Run the daemon in the foreground (concurrency is fixed at 1 internally — a single
+agent runs at a time, others queue):
 ```bash
-./bin/pr-triage run --concurrency 1
+./bin/pr-triage run
 ```
 
 In another terminal, verify daemon status and registered repositories:

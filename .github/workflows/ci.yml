@@ -38,9 +38,9 @@ jobs:
         with:
           go-version-file: 'go.mod'
           check-latest: true
-      - uses: golangci/golangci-lint-action@2226d7cb06a077dc73e56eedd38eecba18e5d42c # v6.1.0
+      - uses: golangci/golangci-lint-action@v7
         with:
-          version: v1.64.6
+          version: v2.11.3
 
   fmt-check:
     name: fmt-check
