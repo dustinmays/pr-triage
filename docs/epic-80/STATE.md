@@ -1,0 +1,82 @@
+---
+title: "Epic 80 — Scanner hardening & Swift support: build state"
+kind: build-state-log
+epic: 80
+epic_issue: "#80"
+chunks:
+  - { id: A, issue: "#81", title: "Test harness & golden fixtures" }
+  - { id: B, issue: "#82", title: "Swift/SwiftBar detection & signals" }
+  - { id: C, issue: "#83", title: "Robustness & edge-case hardening" }
+chunk_branch: chunk/scanner-hardening
+owner: dustinmays
+status: in-progress
+updated: 2026-08-23
+# One curated file, single-writer (the chunk owner). Worker agents READ this for
+# context; they do not write it. Ad-hoc "found it broken, not now" items go to
+# ./deferred/ instead (one file per finding, collision-free).
+related:
+  - ./deferred/README.md            # the deferred-findings backlog for this epic
+  - ../../internal/config/config.go # config Load/Classify/Route (hardened this session)
+  - ../../internal/db/schema.go     # db.Open (hardened this session)
+  - ../live-trial-runbook.md        # the dogfood runbook this epic is exercised through
+---
+
+# Epic 80 — Scanner hardening & Swift support
+
+The single shared "where is the build" doc for this epic. It exists because when
+several agents (Claude, Gemini, OpenCode) work a chunk in separate worktrees
+there is no shared memory — a private per-agent memory can't be read by the
+others. This file is the shared, in-repo version. **The chunk owner is the only
+writer.** Everyone else reads it for context and files noticed-but-deferred items
+into [`./deferred/`](./deferred/README.md).
+
+## Goal
+
+Harden the deterministic pre-scan scanner and add first-class Swift / SwiftBar
+support, dogfooded live through the running `pr-triage` daemon on this repo's own
+PRs into `chunk/scanner-hardening`.
+
+## Chunk status
+
+| Chunk | Issue | Title | Status |
+|-------|-------|-------|--------|
+| A | [#81](https://github.com/dustinmays/pr-triage/issues/81) | Test harness & golden fixtures | not started |
+| B | [#82](https://github.com/dustinmays/pr-triage/issues/82) | Swift/SwiftBar detection & signals | not started |
+| C | [#83](https://github.com/dustinmays/pr-triage/issues/83) | Robustness & edge-case hardening | in progress (dogfood-surfaced fixes landing) |
+
+Sub-issues: A → #84/#85/#86, B → #87/#88/#89, C → #90/#91/#92. Build order A → B → C
+(B and C both need A.1's harness first).
+
+## Log
+
+### 2026-08-23 — Dogfood setup surfaced two robustness bugs (Chunk C territory)
+
+Standing up the daemon against `chunk/scanner-hardening` for the first time
+immediately exposed two real hardening bugs — which is exactly the value the
+scanner-hardening epic is meant to prove out:
+
+1. **`config.Load` didn't merge defaults.** The partial config `init` writes
+   (no `signal_tiers`/`routing`/`worktree_ttl`) loaded with an empty `Routing`
+   map, so every PR hard-failed to `escalate` via `ErrUnmappedTier` — the
+   routine-agent path was dead. Fixed: `Load` now layers the file over
+   `DefaultConfig()`. Also corrected stale default model
+   `claude-3-5-haiku` → `claude-haiku-4-5`. Regression test added.
+2. **`db.Open` didn't create its parent dir.** A fresh `~/.pr-triage` gave the
+   cryptic `unable to open database file (14)` — this blocked `init` outright.
+   Fixed: `Open` now `MkdirAll`s the DB directory, so `init`/`run`/`status`/
+   `checkout` all self-heal on first run.
+
+Both fixes + this knowledge-base scaffold are folded into the first dogfood PR
+into `chunk/scanner-hardening`. Deferred (not fixed now): see
+[`./deferred/`](./deferred/README.md) — the ignored top-level `config.model`,
+the opaque partial config `init` writes, and the two skills we want to build to
+codify this very workflow.
+
+## Conventions in play
+
+- **STATE.md (this file):** single-writer = chunk owner; curated; updated at
+  milestones.
+- **[`deferred/`](./deferred/README.md):** one file per finding, descriptive
+  kebab slug (never sequential numbers — two agents would race the same number);
+  agents only create files, never edit a shared index, so git can't conflict.
+  Fixing a finding flips `status:` in its own file.
