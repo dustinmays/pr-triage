@@ -63,24 +63,19 @@ func DefaultConfig() *Config {
 			DefaultTier: "routine",
 			Rules: []SignalTierRule{
 				{
-					Tier: "critical",
+					Tier: "escalate",
 					Signals: []string{
-						"schema_changed_without_migration",
+						"migration_sql_added",
 						"migration_history_rewritten",
-					},
-				},
-				{
-					Tier: "high",
-					Signals: []string{
-						"destructive_db_operation",
-						"auth_logic_changed",
-					},
-				},
-				{
-					Tier: "medium",
-					Signals: []string{
-						"api_contract_break",
-						"adr_modified",
+						"schema_changed_without_migration",
+						"dependency_manifest_changed",
+						"install_execution_allowed",
+						"test_files_deleted",
+						"tests_skipped_added",
+						"safeguard_config_changed",
+						"suppressions_added",
+						"workflow_changed",
+						"stack_choice_changed",
 					},
 				},
 			},
@@ -89,28 +84,24 @@ func DefaultConfig() *Config {
 			"routine": {
 				Runtime:  "claude-code",
 				Model:    "claude-3-5-haiku",
-				AgentDef: "default",
+				AgentDef: "review-agent",
 			},
-			"medium": {
-				Runtime:  "claude-code",
-				Model:    "claude-3-7-sonnet",
-				AgentDef: "default",
+			"escalate": {
+				Runtime:  "escalate",
+				Model:    "none",
+				AgentDef: "escalate",
 			},
-			"high": {
-				Runtime:  "claude-code",
-				Model:    "claude-3-7-sonnet",
-				AgentDef: "senior-review",
-			},
-			"critical": {
-				Runtime:  "claude-code",
-				Model:    "claude-3-7-opus",
-				AgentDef: "security-expert",
+			"human": {
+				Runtime:  "escalate",
+				Model:    "none",
+				AgentDef: "human-review",
 			},
 		},
 	}
 }
 
 // Classify determines the risk tier of a report based on configured SignalTiers.
+// If target_kind is "chunk_completion", the report always classifies as "human" tier.
 // If report is nil or has no matching present signals, DefaultTier (or "routine") is returned.
 func (c *Config) Classify(rep *report.Report) string {
 	defaultTier := c.SignalTiers.DefaultTier
@@ -118,7 +109,15 @@ func (c *Config) Classify(rep *report.Report) string {
 		defaultTier = "routine"
 	}
 
-	if rep == nil || len(rep.Signals) == 0 {
+	if rep == nil {
+		return defaultTier
+	}
+
+	if rep.PR.TargetKind == "chunk_completion" {
+		return "human"
+	}
+
+	if len(rep.Signals) == 0 {
 		return defaultTier
 	}
 

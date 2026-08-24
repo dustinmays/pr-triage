@@ -40,7 +40,7 @@ func TestConfigLoadAndSave(t *testing.T) {
 func TestClassifyAndRoute_Fixtures(t *testing.T) {
 	cfg := DefaultConfig()
 
-	// 1. Valid report fixture (all present: false) -> routine tier
+	// 1. Valid report fixture (all present: false) -> routine tier -> review agent
 	validData, err := os.ReadFile(filepath.Join("..", "..", "testdata", "reports", "valid.json"))
 	if err != nil {
 		t.Fatalf("read valid.json: %v", err)
@@ -59,11 +59,11 @@ func TestClassifyAndRoute_Fixtures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cfg.Route(%q) failed: %v", tier, err)
 	}
-	if routing.Runtime != "claude-code" || routing.Model != "claude-3-5-haiku" {
+	if routing.Runtime != "claude-code" || routing.Model != "claude-3-5-haiku" || routing.AgentDef != "review-agent" {
 		t.Errorf("unexpected routing for routine tier: %+v", routing)
 	}
 
-	// 2. High risk report fixture (schema_changed_without_migration present) -> critical tier
+	// 2. High risk report fixture (schema_changed_without_migration present) -> escalate tier
 	highRiskData, err := os.ReadFile(filepath.Join("..", "..", "testdata", "reports", "high-risk.json"))
 	if err != nil {
 		t.Fatalf("read high-risk.json: %v", err)
@@ -74,19 +74,85 @@ func TestClassifyAndRoute_Fixtures(t *testing.T) {
 	}
 
 	highTier := cfg.Classify(highRiskRep)
-	if highTier != "critical" {
-		t.Errorf("cfg.Classify(highRiskRep) = %q, want %q", highTier, "critical")
+	if highTier != "escalate" {
+		t.Errorf("cfg.Classify(highRiskRep) = %q, want %q", highTier, "escalate")
 	}
 
 	highRouting, err := cfg.Route(highTier)
 	if err != nil {
 		t.Fatalf("cfg.Route(%q) failed: %v", highTier, err)
 	}
-	if highRouting.Runtime != "claude-code" || highRouting.Model != "claude-3-7-opus" || highRouting.AgentDef != "security-expert" {
-		t.Errorf("unexpected routing for critical tier: %+v", highRouting)
+	if highRouting.Runtime != "escalate" {
+		t.Errorf("unexpected routing for escalate tier: %+v", highRouting)
 	}
 
-	// 3. Unmapped tier -> ErrUnmappedTier
+	// 3. Chunk completion report fixture (target_kind == chunk_completion) -> human tier
+	chunkCompData, err := os.ReadFile(filepath.Join("..", "..", "testdata", "reports", "chunk-completion.json"))
+	if err != nil {
+		t.Fatalf("read chunk-completion.json: %v", err)
+	}
+	chunkCompRep, err := report.ParseAndValidate(chunkCompData)
+	if err != nil {
+		t.Fatalf("parse chunk-completion.json: %v", err)
+	}
+
+	chunkTier := cfg.Classify(chunkCompRep)
+	if chunkTier != "human" {
+		t.Errorf("cfg.Classify(chunkCompRep) = %q, want %q", chunkTier, "human")
+	}
+
+	chunkRouting, err := cfg.Route(chunkTier)
+	if err != nil {
+		t.Fatalf("cfg.Route(%q) failed: %v", chunkTier, err)
+	}
+	if chunkRouting.Runtime != "escalate" || chunkRouting.AgentDef != "human-review" {
+		t.Errorf("unexpected routing for human tier: %+v", chunkRouting)
+	}
+
+	// 4. Table-driven signal tests for all 10 escalation signals
+	signals := []string{
+		"migration_sql_added",
+		"migration_history_rewritten",
+		"schema_changed_without_migration",
+		"dependency_manifest_changed",
+		"install_execution_allowed",
+		"test_files_deleted",
+		"tests_skipped_added",
+		"safeguard_config_changed",
+		"suppressions_added",
+		"workflow_changed",
+		"stack_choice_changed",
+	}
+
+	for _, sigID := range signals {
+		t.Run("signal_"+sigID, func(t *testing.T) {
+			rep := &report.Report{
+				PR: report.PRInfo{
+					Number:     99,
+					Title:      "Test PR",
+					Base:       "chunk/issue-1",
+					Head:       "feat/issue-1",
+					TargetKind: "implementation",
+				},
+				CI: report.CIInfo{Status: "passing"},
+				Signals: []report.Signal{
+					{
+						ID:      sigID,
+						Present: true,
+						Evidence: []report.Evidence{
+							{Detail: "test evidence"},
+						},
+					},
+				},
+			}
+			gotTier := cfg.Classify(rep)
+			if gotTier != "escalate" {
+				t.Errorf("cfg.Classify with signal %s = %q, want %q", sigID, gotTier, "escalate")
+			}
+		})
+	}
+
+	// 5. Unmapped tier -> ErrUnmappedTier
 	_, err = cfg.Route("unknown-tier")
 	if !errors.Is(err, ErrUnmappedTier) {
 		t.Errorf("expected ErrUnmappedTier for unknown tier, got %v", err)
