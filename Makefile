@@ -1,10 +1,13 @@
-.PHONY: build test vet lint fmt-check all
+.PHONY: build test test-race vet lint fmt-check all
 
 build:
 	go build -o bin/pr-triage ./cmd/pr-triage
 
 test:
 	go test ./...
+
+test-race:
+	go test -race ./...
 
 vet:
 	go vet ./...
