@@ -12,7 +12,7 @@ import (
 )
 
 // DefaultEscalationLabel is applied to PRs that require human intervention.
-const DefaultEscalationLabel = "pr-triage:escalated"
+const DefaultEscalationLabel = "needs-owner-review"
 
 // GitHubClient defines the GitHub operations needed for escalation.
 type GitHubClient interface {
