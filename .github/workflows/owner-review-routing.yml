@@ -1,0 +1,104 @@
+# Owner review routing & merge gate.
+#
+# Two jobs:
+#   owner-review-routing — chunk/epic-branch PRs only. Strips auto-picked reviewers (which are noise on sub-PRs).
+#   owner-review-gate — chunk/epic-branch PRs only. The actual merge gate: fails while
+#     `needs-owner-review` is present, passes otherwise. A human removing the label
+#     turns it green.
+
+name: Owner review routing
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, labeled, unlabeled, synchronize, reopened]
+    branches: [main, 'chunk/**', 'epic/**']
+
+permissions: {}
+
+concurrency:
+  group: owner-review-routing-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  owner-review-routing:
+    name: owner-review-routing
+    runs-on: ubuntu-latest
+    if: >-
+      (startsWith(github.event.pull_request.base.ref, 'chunk/') || startsWith(github.event.pull_request.base.ref, 'epic/')) &&
+      contains(fromJSON('["opened", "ready_for_review"]'), github.event.action)
+    permissions:
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Strip the auto-picked reviewer
+        run: |
+          set -euo pipefail
+
+          result="$(gh api graphql -f query='
+            query($owner: String!, $repo: String!, $number: Int!) {
+              repository(owner: $owner, name: $repo) {
+                pullRequest(number: $number) {
+                  reviewRequests(first: 20) {
+                    nodes {
+                      requestedReviewer {
+                        __typename
+                        ... on User { login }
+                        ... on Team { slug }
+                      }
+                    }
+                  }
+                }
+              }
+            }' -f owner="${GH_REPO%%/*}" -f repo="${GH_REPO##*/}" -F number="$PR")"
+
+          reviewers=()
+          while IFS= read -r login; do
+            [ -n "$login" ] && reviewers+=("$login")
+          done < <(jq -r '
+            .data.repository.pullRequest.reviewRequests.nodes[]
+            | select(.requestedReviewer.__typename == "User")
+            | .requestedReviewer.login' <<<"$result")
+          teams=()
+          while IFS= read -r slug; do
+            [ -n "$slug" ] && teams+=("$slug")
+          done < <(jq -r '
+            .data.repository.pullRequest.reviewRequests.nodes[]
+            | select(.requestedReviewer.__typename == "Team")
+            | .requestedReviewer.slug' <<<"$result")
+
+          if [ "${#reviewers[@]}" -eq 0 ] && [ "${#teams[@]}" -eq 0 ]; then
+            echo "no requested reviewers to remove"
+            exit 0
+          fi
+
+          payload="$(jq -n \
+            --argjson reviewers "$(printf '%s\n' "${reviewers[@]:-}" | jq -R -s 'split("\n") | map(select(length > 0))')" \
+            --argjson team_reviewers "$(printf '%s\n' "${teams[@]:-}" | jq -R -s 'split("\n") | map(select(length > 0))')" \
+            '{reviewers: $reviewers, team_reviewers: $team_reviewers}')"
+
+          gh api -X DELETE "repos/$GH_REPO/pulls/$PR/requested_reviewers" --input - <<<"$payload"
+          echo "removed: ${reviewers[*]:-} ${teams[*]:-}"
+
+  owner-review-gate:
+    name: owner-review-gate
+    runs-on: ubuntu-latest
+    if: startsWith(github.event.pull_request.base.ref, 'chunk/') || startsWith(github.event.pull_request.base.ref, 'epic/')
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Fail while needs-owner-review is present
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if gh pr view "$PR" --json labels --jq \
+               '[.labels[].name] | any(. == "needs-owner-review")' | grep -qx true; then
+            echo "::error::needs-owner-review is present — a human must clear it before this merges."
+            exit 1
+          fi
+          echo "needs-owner-review is not present; gate passes"

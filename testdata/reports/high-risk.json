@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 43,
+    "title": "refactor: drop legacy auth tokens table and update indexes",
+    "base": "chunk/auth-migration",
+    "head": "refactor/drop-tokens",
+    "target_kind": "implementation",
+    "issue_refs": [
+      789
+    ]
+  },
+  "ci": {
+    "status": "passing",
+    "failing_checks": []
+  },
+  "stack": {
+    "framework": "vite",
+    "orm": "drizzle",
+    "package_manager": "pnpm",
+    "linter": "biome@2"
+  },
+  "diff": {
+    "files_changed": 3,
+    "insertions": 15,
+    "deletions": 85,
+    "source_files": 3,
+    "generated_files": 0,
+    "source_insertions": 15,
+    "top_level_dirs": [
+      "src",
+      "drizzle"
+    ],
+    "largest_file": {
+      "path": "src/schema.ts",
+      "changed": 50
+    }
+  },
+  "signals": [
+    {
+      "id": "migration_sql_added",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "migration_history_rewritten",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "schema_changed_without_migration",
+      "present": true,
+      "evidence": [
+        {
+          "file": "src/schema.ts",
+          "line": 42,
+          "detail": "- export const authTokens = pgTable('auth_tokens', ...)"
+        }
+      ]
+    },
+    {
+      "id": "dependency_manifest_changed",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "install_execution_allowed",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "test_files_deleted",
+      "present": true,
+      "evidence": [
+        {
+          "file": "src/auth_test.ts",
+          "line": null,
+          "detail": "D vitest"
+        }
+      ]
+    },
+    {
+      "id": "tests_skipped_added",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "safeguard_config_changed",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "suppressions_added",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "workflow_changed",
+      "present": false,
+      "evidence": []
+    },
+    {
+      "id": "stack_choice_changed",
+      "present": false,
+      "evidence": []
+    }
+  ],
+  "notes": [
+    "Detected schema changes without corresponding migration"
+  ],
+  "chunk": null
+}
