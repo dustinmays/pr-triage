@@ -407,6 +407,114 @@ func TestOrchestrator_Recover_StrandedRuns(t *testing.T) {
 	}
 }
 
+func TestOrchestrator_HandleReportReady_HighRiskEscalates(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer func() { _ = database.Close() }()
+
+	store := db.NewStore(database)
+	repo, err := store.UpsertRepo(&db.Repo{
+		Owner:        "dustinmays",
+		Name:         "pr-triage",
+		BaseRef:      "main",
+		PollInterval: "5m",
+		ConfigPath:   "nonexistent.yaml",
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepo failed: %v", err)
+	}
+
+	highRiskReport, _ := os.ReadFile(filepath.Join("..", "..", "testdata", "reports", "high-risk.json"))
+
+	ghMock := newMockGHClient()
+	ghMock.outputs[400] = &gh.CheckRunOutput{
+		Title:   gh.Ptr("High Risk Report"),
+		Summary: gh.Ptr(string(highRiskReport)),
+	}
+
+	escalator := escalate.New(store, ghMock)
+	orch := orchestrator.New(store, ghMock, escalator)
+
+	ctx := context.Background()
+	event := poller.ReportReadyEvent{
+		Repo:       *repo,
+		PRNumber:   43,
+		HeadSHA:    "sha-highrisk",
+		CheckRunID: 400,
+	}
+
+	if err := orch.HandleReportReady(ctx, event); err != nil {
+		t.Fatalf("HandleReportReady failed: %v", err)
+	}
+
+	// Verify PR state is escalated
+	pr, err := store.GetPRState(repo.ID, 43)
+	if err != nil {
+		t.Fatalf("GetPRState failed: %v", err)
+	}
+	if pr.State != "escalated" {
+		t.Errorf("pr.State = %q, want 'escalated'", pr.State)
+	}
+}
+
+func TestOrchestrator_HandleReportReady_ChunkCompletionEscalates(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer func() { _ = database.Close() }()
+
+	store := db.NewStore(database)
+	repo, err := store.UpsertRepo(&db.Repo{
+		Owner:        "dustinmays",
+		Name:         "pr-triage",
+		BaseRef:      "main",
+		PollInterval: "5m",
+		ConfigPath:   "nonexistent.yaml",
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepo failed: %v", err)
+	}
+
+	chunkReport, _ := os.ReadFile(filepath.Join("..", "..", "testdata", "reports", "chunk-completion.json"))
+
+	ghMock := newMockGHClient()
+	ghMock.outputs[500] = &gh.CheckRunOutput{
+		Title:   gh.Ptr("Chunk Completion Report"),
+		Summary: gh.Ptr(string(chunkReport)),
+	}
+
+	escalator := escalate.New(store, ghMock)
+	orch := orchestrator.New(store, ghMock, escalator)
+
+	ctx := context.Background()
+	event := poller.ReportReadyEvent{
+		Repo:       *repo,
+		PRNumber:   83,
+		HeadSHA:    "sha-chunkcomp",
+		CheckRunID: 500,
+	}
+
+	if err := orch.HandleReportReady(ctx, event); err != nil {
+		t.Fatalf("HandleReportReady failed: %v", err)
+	}
+
+	// Verify PR state is escalated
+	pr, err := store.GetPRState(repo.ID, 83)
+	if err != nil {
+		t.Fatalf("GetPRState failed: %v", err)
+	}
+	if pr.State != "escalated" {
+		t.Errorf("pr.State = %q, want 'escalated'", pr.State)
+	}
+}
+
 // TestUnusedImports suppresses unused compiler warnings.
 func TestUnusedImports(t *testing.T) {
 	_ = json.Marshal

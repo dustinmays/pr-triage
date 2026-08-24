@@ -292,6 +292,17 @@ func (o *Orchestrator) HandleReportReady(ctx context.Context, event poller.Repor
 	// 3. Classify risk tier
 	tier := cfg.Classify(rep)
 
+	if tier == "human" || tier == "escalate" {
+		return o.escalator.Escalate(ctx, escalate.Request{
+			Repo:       event.Repo,
+			PRNumber:   event.PRNumber,
+			HeadSHA:    event.HeadSHA,
+			Reason:     fmt.Sprintf("risk tier %q triggered escalation", tier),
+			CIRunID:    &event.CheckRunID,
+			GitHubUser: cfg.GitHubUser,
+		})
+	}
+
 	// 4. Route risk tier
 	routing, err := cfg.Route(tier)
 	if err != nil {
@@ -307,6 +318,17 @@ func (o *Orchestrator) HandleReportReady(ctx context.Context, event poller.Repor
 			})
 		}
 		return err
+	}
+
+	if routing.Runtime == "escalate" {
+		return o.escalator.Escalate(ctx, escalate.Request{
+			Repo:       event.Repo,
+			PRNumber:   event.PRNumber,
+			HeadSHA:    event.HeadSHA,
+			Reason:     fmt.Sprintf("routing configured to escalate for tier %q", tier),
+			CIRunID:    &event.CheckRunID,
+			GitHubUser: cfg.GitHubUser,
+		})
 	}
 
 	// 5. Acquire concurrency slot (bounded at 1 by default)
