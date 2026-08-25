@@ -524,7 +524,13 @@ func (o *Orchestrator) postReviewComment(ctx context.Context, event poller.Repor
 		body = b + "\n\n_…(truncated by pr-triage; full review in the run log)_"
 	}
 
-	_, _ = o.client.CreateComment(ctx, event.Repo.Owner, event.Repo.Name, event.PRNumber, body)
+	if _, err := o.client.CreateComment(ctx, event.Repo.Owner, event.Repo.Name, event.PRNumber, body); err != nil {
+		// Best-effort: a comment failure must not fail the run, but it must not
+		// be silent either — a swallowed error here hid a real problem during
+		// dogfooding. The review is still in the run log.
+		fmt.Fprintf(os.Stderr, "pr-triage: failed to post review comment on %s/%s#%d: %v\n",
+			event.Repo.Owner, event.Repo.Name, event.PRNumber, err)
+	}
 }
 
 func min(a, b int) int {
