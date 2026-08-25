@@ -117,6 +117,34 @@ gives #93 a new SHA, resetting it from the stranded `agent_running` state so the
 fixed daemon re-triages it. Expected next: routine → review-agent runs to `done`
 with `cost_basis=exact`.
 
+### 2026-08-24 — Routine path GREEN end-to-end; but agent was running half-crippled (5th bug)
+
+Run #2 on PR #93 completed: `state=done`, `runtime=claude-code`, **`cost_basis=exact`,
+`cost_usd=$0.1097`, `turns=35`, `stop_reason=end_turn`**. Worktree cleaned up, no
+orphans. The full pipeline works: poll → CI wait → report ingest → classify routine
+→ registered adapter → agent run → done with exact cost. **Headline routine path
+proven live.**
+
+BUT reading run-2.log revealed the agent was effectively **read-only**: it hit
+`permission_denials` for `make all`, `golangci-lint run`, `gofmt -l .`, and never
+posted its review comment. Cause: the adapter spawned `claude` with no
+`--permission-mode`, so it defaulted to `default` with no interactive approver →
+non-allowlisted Bash auto-denied. The agent produced an excellent review summary
+(as terminal text, not a PR comment) and claimed "all tests pass, approved" — a
+claim it could not actually verify because its verification commands were blocked.
+
+Fixed: `BuildArgs` now passes `--permission-mode bypassPermissions` (the daemon is
+unattended; the agent works in an isolated worktree and risky changes escalate
+before reaching it). Tests updated. Follow-up captured:
+[agent-permission-mode-hardening](./deferred/agent-permission-mode-hardening.md)
+(tighten to a scoped allowlist / make configurable; agent shouldn't claim
+verification it was blocked from running).
+
+**Scorecard: 5 real bugs found+fixed via live dogfood, none caught by the test
+suite** — config defaults, db dir, report-check-by-name, adapter registration,
+agent permission mode. Next restart should show the agent actually running its
+toolchain and posting a comment on the PR.
+
 ## Conventions in play
 
 - **STATE.md (this file):** single-writer = chunk owner; curated; updated at

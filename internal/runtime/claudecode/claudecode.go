@@ -47,6 +47,14 @@ func (a *Adapter) BuildArgs(inv runtime.Invocation) []string {
 		args = append(args, "--agent", inv.AgentName)
 	}
 	args = append(args, "-p", "--output-format", "stream-json", "--verbose")
+	// The daemon runs the agent unattended, so there is no human to approve tool
+	// use. Without an explicit permission mode the CLI defaults to "default",
+	// which auto-denies non-allowlisted Bash calls — the agent then cannot run
+	// its verification toolchain (make/lint/gofmt), commit/push fixes, or post its
+	// review comment. bypassPermissions grants the autonomous agent the access it
+	// needs; it operates inside an isolated git worktree and risky changes are
+	// escalated to a human before ever reaching the agent.
+	args = append(args, "--permission-mode", "bypassPermissions")
 	if inv.Model != "" {
 		args = append(args, "--model", inv.Model)
 	}
