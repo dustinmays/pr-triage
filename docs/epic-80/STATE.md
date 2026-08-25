@@ -145,6 +145,27 @@ suite** — config defaults, db dir, report-check-by-name, adapter registration,
 agent permission mode. Next restart should show the agent actually running its
 toolchain and posting a comment on the PR.
 
+### 2026-08-24 — Permission fix confirmed; agent verifies for real but doesn't post its review
+
+Run #3 on PR #93: `done`, exact `$0.082`, 30 turns, end_turn. **`permission_denials: []`** —
+the agent ran its full toolchain for real (make all/vet/lint/test/test-race/build,
+golangci-lint) with zero denials. The permission fix is confirmed working.
+
+Remaining gap (not a pipeline blocker): the agent wrote a thorough review summary
+but **never posted it to the PR** — it said it would, wrote the text to
+`/tmp/review_summary.md`, then ended without running `gh pr comment`. The review
+lives only in the run log; PR #93 shows nothing from pr-triage. Relying on the
+model to remember `gh pr comment` is unreliable. Captured as
+[orchestrator-should-post-review-comment](./deferred/orchestrator-should-post-review-comment.md):
+the orchestrator should post the agent's captured `Result` summary deterministically
+via the existing `CreateComment`, idempotently, rather than depending on the agent.
+
+**Pipeline status: fully proven.** Routine path is green end-to-end with exact
+cost. Open polish items are all deferred (post-review-comment, permission
+allowlist, model-ignored, report-check fragility, install command). Good point to
+decide: implement deterministic comment posting next, or merge #93 and move to the
+actual Chunk A harness work (#84).
+
 ## Conventions in play
 
 - **STATE.md (this file):** single-writer = chunk owner; curated; updated at
