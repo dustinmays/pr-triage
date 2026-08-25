@@ -1,0 +1,101 @@
+{
+  "chunk": null,
+  "ci": {
+    "failing_checks": [],
+    "status": "none"
+  },
+  "diff": {
+    "deletions": 9,
+    "files_changed": 1,
+    "generated_files": 0,
+    "insertions": 0,
+    "largest_file": {
+      "changed": 9,
+      "path": "widget_test.go"
+    },
+    "source_files": 1,
+    "source_insertions": 0,
+    "top_level_dirs": [
+      "."
+    ]
+  },
+  "notes": [],
+  "pr": {
+    "base": "chunk/scanner-hardening",
+    "head": "feat/drop-widget-test",
+    "issue_refs": [],
+    "number": 42,
+    "target_kind": "implementation",
+    "title": "Remove the widget unit test"
+  },
+  "schema_version": 1,
+  "signals": [
+    {
+      "evidence": [],
+      "id": "migration_sql_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "migration_history_rewritten",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "schema_changed_without_migration",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "dependency_manifest_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "install_execution_allowed",
+      "present": false
+    },
+    {
+      "evidence": [
+        {
+          "detail": "D go-test",
+          "file": "widget_test.go",
+          "line": null
+        }
+      ],
+      "id": "test_files_deleted",
+      "present": true
+    },
+    {
+      "evidence": [],
+      "id": "tests_skipped_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "safeguard_config_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "suppressions_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "workflow_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "stack_choice_changed",
+      "present": false
+    }
+  ],
+  "stack": {
+    "framework": null,
+    "linter": null,
+    "orm": null,
+    "package_manager": null
+  }
+}

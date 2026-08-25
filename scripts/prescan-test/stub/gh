@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Stub `gh` for the prescan test harness.
+#
+# The real scanner shells out to `gh` for PR metadata. In the harness we run
+# against a throwaway local repo, so there is no GitHub PR to query. This stub
+# stands in for `gh` on PATH and answers only the two subcommands the scanner
+# uses:
+#
+#   gh repo view --json nameWithOwner -q .nameWithOwner
+#   gh pr view <n> --repo <r> --json number,title,baseRefName,...
+#
+# It serves the PR metadata from the file named by $PRESCAN_STUB_PR_JSON and
+# the repository slug from $PRESCAN_STUB_REPO. Anything else is a hard error so
+# a scanner change that adds a new `gh` call fails loudly instead of silently.
+set -euo pipefail
+
+sub="${1:-}"
+case "$sub" in
+  repo)
+    # gh repo view --json nameWithOwner -q .nameWithOwner
+    printf '%s\n' "${PRESCAN_STUB_REPO:-owner/repo}"
+    ;;
+  pr)
+    action="${2:-}"
+    case "$action" in
+      view)
+        [ -n "${PRESCAN_STUB_PR_JSON:-}" ] || {
+          echo "gh stub: PRESCAN_STUB_PR_JSON is not set" >&2
+          exit 1
+        }
+        cat "$PRESCAN_STUB_PR_JSON"
+        ;;
+      *)
+        echo "gh stub: unsupported 'gh pr $action'" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  *)
+    echo "gh stub: unsupported 'gh $sub'" >&2
+    exit 1
+    ;;
+esac
