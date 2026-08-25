@@ -6,7 +6,7 @@ severity: medium
 area: orchestrator, agents, observability
 found_by: dustinmays
 found_in: chunk/scanner-hardening dogfood — run #3 on PR #93 (2026-08-24)
-status: open
+status: fixed
 related:
   - ../../../internal/orchestrator/orchestrator.go   # runs the agent, has the Result
   - ../../../internal/github/client.go               # CreateComment already exists (used by escalator)
@@ -50,3 +50,20 @@ Make posting **deterministic in the orchestrator**, not the agent:
 
 This decouples "did the agent produce a review" from "did the review reach the
 PR", the same way we decoupled report ingestion from an arbitrary check run.
+
+## Resolution (2026-08-24)
+
+Implemented the core recommendation:
+- Added `runtime.Result.Summary`; the claude-code adapter now populates it from
+  the terminal `result` event (it was parsed but discarded before).
+- `orchestrator.postReviewComment` posts the summary to the PR on a successful
+  routine run via the existing `CreateComment`, tagged `<!-- pr-triage:review -->`,
+  best-effort (a comment failure never fails the run), truncated on a UTF-8
+  boundary under GitHub's ~65536-char limit. Test asserts the comment is posted
+  with the marker + summary.
+
+**Remaining (small follow-up, not yet done):** true update-or-create idempotency
+(list comments, find the marker, update instead of appending) so same-SHA
+re-runs don't post duplicates. Needs `ListComments`/`UpdateComment` on the client.
+Create-only is acceptable meanwhile because each new push is a new SHA / fresh
+review; only same-SHA recovery re-runs can duplicate.

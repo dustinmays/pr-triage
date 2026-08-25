@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	gh "github.com/google/go-github/v72/github"
 
@@ -475,6 +477,13 @@ func (o *Orchestrator) executeRun(
 		runRecord.Status = "done"
 		_ = o.store.UpdateRun(runRecord)
 		_, _ = o.store.UpsertPRState(event.Repo.ID, event.PRNumber, event.HeadSHA, &event.CheckRunID, poller.StateDone)
+
+		// Deterministically post the agent's review to the PR. Delivery must not
+		// depend on the agent remembering to run `gh pr comment` — it often does
+		// not (observed on haiku). The adapter already captured the agent's final
+		// summary in parsedRes.Summary; posting it here guarantees the review is
+		// visible on the PR and costs zero agent turns.
+		o.postReviewComment(ctx, event, parsedRes.Summary)
 		return nil
 	}
 
@@ -486,6 +495,36 @@ func (o *Orchestrator) executeRun(
 	_ = o.store.UpdateRun(runRecord)
 	_, _ = o.store.UpsertPRState(event.Repo.ID, event.PRNumber, event.HeadSHA, &event.CheckRunID, poller.StateCIFailed)
 	return nil
+}
+
+// reviewCommentMarker tags orchestrator-posted review comments so they can be
+// recognized later (e.g. for future update-or-create idempotency).
+const reviewCommentMarker = "<!-- pr-triage:review -->"
+
+// postReviewComment posts the agent's review summary to the PR. It is
+// best-effort: a failure to comment must not fail the run (the review is also in
+// the run log). Create-only for now; update-or-create idempotency is a tracked
+// follow-up (docs/epic-80/deferred/orchestrator-should-post-review-comment.md).
+func (o *Orchestrator) postReviewComment(ctx context.Context, event poller.ReportReadyEvent, summary string) {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return
+	}
+
+	body := reviewCommentMarker + "\n\n## 🤖 pr-triage review\n\n" + summary
+
+	// Stay under GitHub's ~65536-char issue-comment limit, truncating on a valid
+	// UTF-8 boundary.
+	const maxBody = 60000
+	if len(body) > maxBody {
+		b := body[:maxBody]
+		for len(b) > 0 && !utf8.ValidString(b) {
+			b = b[:len(b)-1]
+		}
+		body = b + "\n\n_…(truncated by pr-triage; full review in the run log)_"
+	}
+
+	_, _ = o.client.CreateComment(ctx, event.Repo.Owner, event.Repo.Name, event.PRNumber, body)
 }
 
 func min(a, b int) int {

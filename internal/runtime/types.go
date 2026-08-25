@@ -73,6 +73,11 @@ type Result struct {
 	StopReason string
 	// IsError indicates the runtime itself reported the run as an error.
 	IsError bool
+	// Summary is the agent's final free-text output (the terminal result
+	// event's message), typically its review write-up. The orchestrator posts
+	// this to the PR deterministically so delivery does not depend on the agent
+	// remembering to run a comment command. May be empty.
+	Summary string
 }
 
 // Validate reports whether the Result is well-formed. It currently enforces

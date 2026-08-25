@@ -166,6 +166,26 @@ allowlist, model-ignored, report-check fragility, install command). Good point t
 decide: implement deterministic comment posting next, or merge #93 and move to the
 actual Chunk A harness work (#84).
 
+### 2026-08-24 — Deterministic review posting (agent=judgment, harness=delivery)
+
+Decided the "agent didn't post its review" gap is an *architecture* problem, not
+an intelligence/instructions/skill problem: any step that must happen every time
+must not live in the agent's turn budget. Principle: **agent = judgment; harness =
+guaranteed side effects.** Implemented it:
+
+- `runtime.Result.Summary` added; claude-code adapter now populates it from the
+  terminal `result` event (it was parsed but thrown away before).
+- `orchestrator.postReviewComment` posts the summary on a successful routine run
+  via the existing `CreateComment`, tagged `<!-- pr-triage:review -->`,
+  best-effort (never fails the run), UTF-8-safe truncation under GitHub's limit.
+  Test asserts marker + summary are posted.
+
+Delivery no longer depends on the model remembering `gh pr comment`. Remaining
+small follow-up: update-or-create idempotency (needs ListComments/UpdateComment).
+Daemon was stopped by the user, so this landed without triggering a run. Not yet
+verified live — next live run should show a `<!-- pr-triage:review -->` comment on
+the PR.
+
 ## Conventions in play
 
 - **STATE.md (this file):** single-writer = chunk owner; curated; updated at

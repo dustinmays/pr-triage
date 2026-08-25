@@ -178,6 +178,7 @@ func (a *Adapter) ParseResult(log io.Reader) (*runtime.Result, error) {
 						Turns:      turns,
 						StopReason: stopReason,
 						IsError:    isError,
+						Summary:    event.Result,
 					}
 				}
 			}
