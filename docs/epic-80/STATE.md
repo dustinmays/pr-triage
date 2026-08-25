@@ -186,6 +186,30 @@ Daemon was stopped by the user, so this landed without triggering a run. Not yet
 verified live — next live run should show a `<!-- pr-triage:review -->` comment on
 the PR.
 
+### 2026-08-24 — Deterministic posting VERIFIED live; agent dedup; #93 ready to merge
+
+Root cause of the earlier silent no-post: the daemon's keyring token was
+read-only, so the Go client's `CreateComment` 401'd — and `postReviewComment`
+swallowed the error. Fixed both: un-silenced the post (logs to stderr / Terminal 1
+on failure); user reset the token to a write-capable fine-grained PAT (Pull
+requests RW, Issues RW, Contents RW, Checks R, Metadata R). Run #6 then posted the
+**`<!-- pr-triage:review -->`** comment for real — deterministic delivery by the
+harness confirmed end-to-end (exact cost $0.027).
+
+Observed along the way: the agent ALSO self-posts via bypassPermissions+gh, but
+inconsistently (posted on #4/#5/#6, not #3) — the exact reliability reason the
+harness must own delivery. To avoid duplicate comments, stripped the "post a
+comment" step from BOTH `agents/review-agent.md` and `.claude/agents/review-agent.md`
+(the daemon resolves `--agent` from `.claude/agents/`): the agent now ends with its
+summary as its final message and does NOT run gh; the orchestrator is the sole
+poster. Deferral path reworded to explain in the final summary rather than
+comment.
+
+**Pipeline COMPLETE and verified. #93 is ready for human review + merge into
+chunk/scanner-hardening.** 7 bugs found+fixed via live dogfood, none caught by
+tests: config defaults, db dir, report-check-by-name, adapter registration, agent
+permission mode, review delivery (agent→orchestrator), read-only-token+silent-fail.
+
 ## Conventions in play
 
 - **STATE.md (this file):** single-writer = chunk owner; curated; updated at
