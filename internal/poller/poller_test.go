@@ -140,6 +140,7 @@ func TestPoller_NewPR_CIPasses(t *testing.T) {
 	client.checkRuns["sha-pass"] = []*gh.CheckRun{
 		{
 			ID:         gh.Ptr(int64(999)),
+			Name:       gh.Ptr("pr-prescan-report"),
 			Status:     gh.Ptr("completed"),
 			Conclusion: gh.Ptr("success"),
 		},
@@ -177,6 +178,60 @@ func TestPoller_NewPR_CIPasses(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected ReportReadyEvent, got none")
+	}
+}
+
+// TestPoller_GatingGreenNoReportCheck_StaysPending guards the fix for the
+// dogfood-surfaced bug where the poller emitted report_ready with an arbitrary
+// check-run ID. When every gating check is green but the pr-prescan-report check
+// run is absent, the poller must NOT emit report_ready (which would make the
+// orchestrator fetch the report from the wrong check run); it should keep waiting
+// until the ceiling, then mark ci_failed.
+func TestPoller_GatingGreenNoReportCheck_StaysPending(t *testing.T) {
+	store := newMockStore()
+	store.repos = append(store.repos, db.Repo{
+		ID:      1,
+		Owner:   "owner",
+		Name:    "repo",
+		BaseRef: "main",
+	})
+
+	client := newMockGitHubClient()
+	client.prs["owner/repo"] = []*gh.PullRequest{
+		{
+			Number: gh.Ptr(7),
+			Head:   &gh.PullRequestBranch{SHA: gh.Ptr("sha-noreport")},
+			Base:   &gh.PullRequestBranch{Ref: gh.Ptr("main")},
+		},
+	}
+	// All gating checks pass, but none is the pr-prescan-report check.
+	client.checkRuns["sha-noreport"] = []*gh.CheckRun{
+		{ID: gh.Ptr(int64(11)), Name: gh.Ptr("lint"), Status: gh.Ptr("completed"), Conclusion: gh.Ptr("success")},
+		{ID: gh.Ptr(int64(12)), Name: gh.Ptr("test"), Status: gh.Ptr("completed"), Conclusion: gh.Ptr("success")},
+	}
+
+	p := poller.New(store, client,
+		poller.WithInitialBackoff(10*time.Millisecond),
+		poller.WithTimeoutCeiling(50*time.Millisecond),
+		poller.WithSleepFunc(func(ctx context.Context, d time.Duration) error { return nil }),
+	)
+
+	ctx := context.Background()
+	// Expected to hit the timeout ceiling rather than emit report_ready.
+	_ = p.PollOnce(ctx)
+
+	prState, err := store.GetPRState(1, 7)
+	if err != nil {
+		t.Fatalf("GetPRState failed: %v", err)
+	}
+	if prState.State == poller.StateReportReady {
+		t.Errorf("state = report_ready, but no pr-prescan-report check exists; want it to keep waiting/ci_failed")
+	}
+
+	select {
+	case evt := <-p.ReportReadyEvents():
+		t.Fatalf("unexpected ReportReadyEvent emitted without a report check run: %+v", evt)
+	default:
 	}
 }
 
@@ -296,6 +351,7 @@ func TestPoller_NewPush_ResetsToCIRunning(t *testing.T) {
 	client.checkRuns["sha-new"] = []*gh.CheckRun{
 		{
 			ID:         gh.Ptr(int64(200)),
+			Name:       gh.Ptr("pr-prescan-report"),
 			Status:     gh.Ptr("completed"),
 			Conclusion: gh.Ptr("success"),
 		},
@@ -368,6 +424,7 @@ func TestPoller_CIWait_Backoff_PendingToSuccess(t *testing.T) {
 		return []*gh.CheckRun{
 			{
 				ID:         gh.Ptr(int64(700)),
+				Name:       gh.Ptr("pr-prescan-report"),
 				Status:     gh.Ptr("completed"),
 				Conclusion: gh.Ptr("success"),
 			},
@@ -528,11 +585,18 @@ func TestPoller_RealDBAndHTTPClient(t *testing.T) {
 	}
 
 	checkRunsResp := map[string]any{
-		"total_count": 1,
+		"total_count": 2,
 		"check_runs": []map[string]any{
 			{
-				"id":         5555,
+				"id":         4444,
 				"name":       "ci/test",
+				"head_sha":   "sha-real-integration",
+				"status":     "completed",
+				"conclusion": "success",
+			},
+			{
+				"id":         5555,
+				"name":       "pr-prescan-report",
 				"head_sha":   "sha-real-integration",
 				"status":     "completed",
 				"conclusion": "success",

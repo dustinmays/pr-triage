@@ -72,6 +72,32 @@ into `chunk/scanner-hardening`. Deferred (not fixed now): see
 the opaque partial config `init` writes, and the two skills we want to build to
 codify this very workflow.
 
+### 2026-08-24 — Live daemon run stuck at report_ready → third real bug (report check-run selection)
+
+Started the daemon against `chunk/scanner-hardening`; PR #93 walked to
+`report_ready` then **stuck** — no `runs` row, sat past two poll cycles. Root
+cause (load-bearing): the poller emitted `report_ready` with an **arbitrary**
+check-run ID (`evaluateCheckRuns` returned whichever check run was last in the
+array), and the orchestrator fetched the report from *that* check run's output.
+The report JSON lives only in the dedicated `pr-prescan-report` check run, so the
+fetch hit the wrong check → empty summary → `ErrMissing` → handler returned err →
+PR stranded in `report_ready` (the poller won't re-emit for an already-`report_ready`
+PR). It only ever worked in tests with a single mocked check run; **in any repo
+with multiple checks the daemon could never ingest a report.**
+
+Fixed: added `report.ReportCheckName = "pr-prescan-report"`; the poller now
+resolves the report check run *by name* (`reportCheckRunID`) and only emits
+`report_ready` once that check exists (otherwise it keeps waiting). Added tests:
+picks the report check among many (integration path), and stays pending when
+gating is green but the report check is absent. Full suite + lint green.
+
+This coupling to a named check run is itself fragile — captured as deferred:
+[report-check-name-coupling-fragile](./deferred/report-check-name-coupling-fragile.md)
+(should escalate, not silently `ci_failed`, when the report check never appears)
+and [workflow-install-command](./deferred/workflow-install-command.md) (a
+`pr-triage workflow` command to install/ensure the pre-scan job). Both fold into
+PR #93.
+
 ## Conventions in play
 
 - **STATE.md (this file):** single-writer = chunk owner; curated; updated at

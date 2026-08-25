@@ -12,6 +12,7 @@ import (
 	gh "github.com/google/go-github/v72/github"
 
 	"github.com/dustinmays/pr-triage/internal/db"
+	"github.com/dustinmays/pr-triage/internal/report"
 )
 
 // PR state machine state constants matching the plan diagram:
@@ -371,10 +372,21 @@ func (p *Poller) pollCI(ctx context.Context, repo db.Repo, number int, headSHA s
 
 		status, runID := evaluateCheckRuns(checkRuns)
 
+		// The pre-scan report lives in a dedicated check run (report.ReportCheckName),
+		// not the arbitrary gating run evaluateCheckRuns happens to return. Resolve
+		// it by name so the orchestrator fetches the report from the right place.
+		reportID := reportCheckRunID(checkRuns)
+
+		// If gating otherwise passed but the report check run hasn't registered
+		// yet, keep waiting instead of emitting report_ready with a wrong ID.
+		if status == checkRunPassed && reportID == 0 {
+			status = checkRunPending
+		}
+
 		switch status {
 		case checkRunPassed:
 			// CI passed -> persist report_ready and emit internal signal
-			return p.emitReportReady(ctx, repo, number, headSHA, runID)
+			return p.emitReportReady(ctx, repo, number, headSHA, &reportID)
 
 		case checkRunFailed:
 			// CI failed -> persist ci_failed (watching head SHA)
@@ -403,6 +415,18 @@ func (p *Poller) pollCI(ctx context.Context, repo db.Repo, number int, headSHA s
 			backoff = nextBackoff
 		}
 	}
+}
+
+// reportCheckRunID returns the ID of the pre-scan report check run among runs,
+// identified by name, or 0 if it is not present. The report JSON lives only in
+// this check run's output; the other checks (lint, test, build, …) do not carry it.
+func reportCheckRunID(runs []*gh.CheckRun) int64 {
+	for _, run := range runs {
+		if run != nil && run.GetName() == report.ReportCheckName && run.GetID() != 0 {
+			return run.GetID()
+		}
+	}
+	return 0
 }
 
 // evaluateCheckRuns inspects check runs for a commit SHA.

@@ -30,6 +30,8 @@ severity (low|medium|high|n/a), area, found_by, found_in, status
 | Finding | Kind | Sev | Area | Notes |
 |---------|------|-----|------|-------|
 | [config-model-silently-ignored](./config-model-silently-ignored.md) | bug | medium | config, orchestrator | `--model` / top-level `config.model` is ignored; agent runs on `routing.Model` |
+| [report-check-name-coupling-fragile](./report-check-name-coupling-fragile.md) | enhancement | medium | poller, report, workflows | daemon hard-couples to a check named `pr-prescan-report`; missing → silent `ci_failed` drop |
+| [workflow-install-command](./workflow-install-command.md) | enhancement | low | cli, workflows | `pr-triage workflow` to install/ensure the pre-scan CI job exists |
 | [init-writes-opaque-partial-config](./init-writes-opaque-partial-config.md) | enhancement | low | config, cli | `init` hides the active signal/routing tables (now correctness-safe after the Load merge fix) |
 | [skill-defer-finding](./skill-defer-finding.md) | tooling | n/a | workflow, agents | build a skill encoding how agents file deferred findings |
 | [skill-log-build-state](./skill-log-build-state.md) | tooling | n/a | workflow, agents | build a skill encoding how the chunk owner maintains STATE.md |
