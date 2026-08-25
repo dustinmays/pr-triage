@@ -98,6 +98,25 @@ and [workflow-install-command](./deferred/workflow-install-command.md) (a
 `pr-triage workflow` command to install/ensure the pre-scan job). Both fold into
 PR #93.
 
+### 2026-08-24 — Routine path reached, then failed: runtime adapter never registered (4th bug)
+
+With the report-fetch fix, the fixed daemon re-triaged #93 correctly: report
+ingested, classified **routine**, agent invoked — proving the config + report
+fixes work end-to-end. But the run **failed** immediately:
+`unregistered runtime "claude-code" ... (registered: [])`. The registry was
+empty. The claude-code adapter self-registers in `init()`, but that only runs if
+its package is imported into the binary — and **nothing in non-test code imported
+`internal/runtime/claudecode`**. Tests import it directly, so they passed; the
+real daemon never registered any adapter and every run would fail.
+
+Fixed: blank import `_ ".../internal/runtime/claudecode"` in `cmd/pr-triage/main.go`
+(conventional for self-registering adapters; future codex/opencode go there too).
+Guard: `cmd/pr-triage/main_test.go` asserts `runtime.Get("claude-code")` succeeds —
+it lives in package main, so dropping the blank import fails the test. This push
+gives #93 a new SHA, resetting it from the stranded `agent_running` state so the
+fixed daemon re-triages it. Expected next: routine → review-agent runs to `done`
+with `cost_basis=exact`.
+
 ## Conventions in play
 
 - **STATE.md (this file):** single-writer = chunk owner; curated; updated at
