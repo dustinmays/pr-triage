@@ -37,6 +37,48 @@ func TestConfigLoadAndSave(t *testing.T) {
 	}
 }
 
+// TestLoadMergesDefaults guards the fix for the dogfood-surfaced bug where a
+// partial config (as written by `init`, lacking signal_tiers/routing/worktree_ttl)
+// loaded with empty Routing, causing every PR to hard-fail to escalate via
+// ErrUnmappedTier. Load must layer the file over DefaultConfig so absent sections
+// keep their defaults.
+func TestLoadMergesDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Minimal config with no signal_tiers, routing, or worktree_ttl — exactly
+	// what `init --non-interactive` writes today.
+	partial := []byte("base_ref: chunk/**\npoll_interval: 5m\ntimeout: 10m\ngithub_user: dustinmays\nruntime: claude-code\nmodel: claude-haiku-4-5\n")
+	if err := os.WriteFile(cfgPath, partial, 0644); err != nil {
+		t.Fatalf("write partial config: %v", err)
+	}
+
+	loaded, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	// File values win.
+	if loaded.BaseRef != "chunk/**" || loaded.GitHubUser != "dustinmays" {
+		t.Errorf("file values not honored: %+v", loaded)
+	}
+	// Absent sections inherit defaults.
+	if loaded.WorktreeTTL != "72h" {
+		t.Errorf("WorktreeTTL = %q, want default %q", loaded.WorktreeTTL, "72h")
+	}
+	if loaded.SignalTiers.DefaultTier != "routine" || len(loaded.SignalTiers.Rules) == 0 {
+		t.Errorf("SignalTiers not defaulted: %+v", loaded.SignalTiers)
+	}
+	// The routine tier must route to a real agent, not ErrUnmappedTier.
+	r, err := loaded.Route("routine")
+	if err != nil {
+		t.Fatalf("Route(routine) after partial load: %v", err)
+	}
+	if r.Runtime != "claude-code" || r.AgentDef != "review-agent" {
+		t.Errorf("routine routing not defaulted: %+v", r)
+	}
+}
+
 func TestClassifyAndRoute_Fixtures(t *testing.T) {
 	cfg := DefaultConfig()
 
@@ -59,7 +101,7 @@ func TestClassifyAndRoute_Fixtures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cfg.Route(%q) failed: %v", tier, err)
 	}
-	if routing.Runtime != "claude-code" || routing.Model != "claude-3-5-haiku" || routing.AgentDef != "review-agent" {
+	if routing.Runtime != "claude-code" || routing.Model != "claude-haiku-4-5" || routing.AgentDef != "review-agent" {
 		t.Errorf("unexpected routing for routine tier: %+v", routing)
 	}
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -93,6 +94,7 @@ func (f *fakeMockRuntime) ParseResult(log io.Reader) (*runtime.Result, error) {
 		CostBasis:  runtime.CostBasisExact,
 		Turns:      3,
 		StopReason: "completed",
+		Summary:    "Automated review: all checks pass. LGTM.",
 	}, nil
 }
 
@@ -199,6 +201,19 @@ routing:
 	}
 	if runs[0].CostUSD != 0.05 || runs[0].CostBasis != "exact" || runs[0].Turns != 3 {
 		t.Errorf("unexpected run metrics: %+v", runs[0])
+	}
+
+	// The orchestrator must deterministically post the agent's review summary to
+	// the PR — delivery must not depend on the agent running gh itself.
+	if len(ghMock.createdPosts) != 1 {
+		t.Fatalf("expected 1 review comment posted, got %d", len(ghMock.createdPosts))
+	}
+	posted := ghMock.createdPosts[0]
+	if !strings.Contains(posted, "<!-- pr-triage:review -->") {
+		t.Errorf("review comment missing marker: %q", posted)
+	}
+	if !strings.Contains(posted, "Automated review: all checks pass. LGTM.") {
+		t.Errorf("review comment missing agent summary: %q", posted)
 	}
 }
 

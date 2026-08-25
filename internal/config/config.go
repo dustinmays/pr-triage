@@ -83,7 +83,7 @@ func DefaultConfig() *Config {
 		Routing: map[string]Routing{
 			"routine": {
 				Runtime:  "claude-code",
-				Model:    "claude-3-5-haiku",
+				Model:    "claude-haiku-4-5",
 				AgentDef: "review-agent",
 			},
 			"escalate": {
@@ -164,11 +164,16 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	// Layer the file over DefaultConfig so a partial config inherits sane
+	// defaults. YAML unmarshal only overwrites keys present in the file; absent
+	// keys (e.g. signal_tiers, routing, worktree_ttl) keep their defaults.
+	// Without this, a minimal config written by `init` would have an empty
+	// Routing map and every PR would hard-fail to escalate via ErrUnmappedTier.
+	cfg := DefaultConfig()
+	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
-	return &cfg, nil
+	return cfg, nil
 }
 
 // Save writes configuration to a YAML file, creating parent directories if needed.

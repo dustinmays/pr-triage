@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 
@@ -38,6 +39,17 @@ const schemaVersion = 2
 // path (e.g. "/tmp/foo.db") or a file: DSN; pragma query parameters are
 // appended automatically.
 func Open(path string) (*sqlx.DB, error) {
+	// Ensure the parent directory exists; SQLite returns a cryptic
+	// "unable to open database file (14)" if it does not (e.g. a fresh
+	// ~/.pr-triage on first run). Skip for in-memory DSNs.
+	if path != "" && path != ":memory:" && !strings.Contains(path, "mode=memory") {
+		if dir := filepath.Dir(path); dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return nil, fmt.Errorf("db: create dir %s: %w", dir, err)
+			}
+		}
+	}
+
 	dsn := buildDSN(path)
 
 	db, err := sqlx.Open("sqlite", dsn)
