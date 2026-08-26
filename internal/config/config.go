@@ -100,25 +100,48 @@ func DefaultConfig() *Config {
 	}
 }
 
+// Classification is the result of Classify: the risk tier plus a machine-readable
+// account of why that tier was chosen. It lets callers (e.g. escalation) tell the
+// human which specific signal(s) tripped, rather than just naming the tier.
+type Classification struct {
+	// Tier is the resolved risk tier.
+	Tier string
+	// MatchedSignals are the present signal IDs (in rule order) that determined a
+	// signal-driven tier. Empty when the tier came from target_kind or the default.
+	MatchedSignals []string
+	// ByTargetKind is true when the tier was forced by rep.PR.TargetKind
+	// (e.g. a chunk-completion PR always requires human review).
+	ByTargetKind bool
+	// TargetKind carries the triggering target_kind when ByTargetKind is true.
+	TargetKind string
+}
+
 // Classify determines the risk tier of a report based on configured SignalTiers.
 // If target_kind is "chunk_completion", the report always classifies as "human" tier.
 // If report is nil or has no matching present signals, DefaultTier (or "routine") is returned.
 func (c *Config) Classify(rep *report.Report) string {
+	return c.ClassifyWithReason(rep).Tier
+}
+
+// ClassifyWithReason is Classify plus the reason the tier was chosen. When a
+// signal rule matches, MatchedSignals lists every present signal ID in that
+// rule (not just the first), so escalation can name and cite all of them.
+func (c *Config) ClassifyWithReason(rep *report.Report) Classification {
 	defaultTier := c.SignalTiers.DefaultTier
 	if defaultTier == "" {
 		defaultTier = "routine"
 	}
 
 	if rep == nil {
-		return defaultTier
+		return Classification{Tier: defaultTier}
 	}
 
 	if rep.PR.TargetKind == "chunk_completion" {
-		return "human"
+		return Classification{Tier: "human", ByTargetKind: true, TargetKind: rep.PR.TargetKind}
 	}
 
 	if len(rep.Signals) == 0 {
-		return defaultTier
+		return Classification{Tier: defaultTier}
 	}
 
 	presentSignals := make(map[string]bool)
@@ -129,18 +152,22 @@ func (c *Config) Classify(rep *report.Report) string {
 	}
 
 	if len(presentSignals) == 0 {
-		return defaultTier
+		return Classification{Tier: defaultTier}
 	}
 
 	for _, rule := range c.SignalTiers.Rules {
+		var matched []string
 		for _, sigID := range rule.Signals {
 			if presentSignals[sigID] {
-				return rule.Tier
+				matched = append(matched, sigID)
 			}
+		}
+		if len(matched) > 0 {
+			return Classification{Tier: rule.Tier, MatchedSignals: matched}
 		}
 	}
 
-	return defaultTier
+	return Classification{Tier: defaultTier}
 }
 
 // Route maps a risk tier to its configured {runtime, model, agent_def} triple.

@@ -201,6 +201,58 @@ func TestClassifyAndRoute_Fixtures(t *testing.T) {
 	}
 }
 
+func TestClassifyWithReason(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Multiple present signals in the escalate rule are all reported, in rule order.
+	rep := &report.Report{
+		PR: report.PRInfo{Number: 1, TargetKind: "implementation"},
+		Signals: []report.Signal{
+			{ID: "workflow_changed", Present: true, Evidence: []report.Evidence{{File: ".github/workflows/ci.yml", Detail: "M ci.yml"}}},
+			{ID: "safeguard_config_changed", Present: true},
+			{ID: "migration_sql_added", Present: false},
+		},
+	}
+	got := cfg.ClassifyWithReason(rep)
+	if got.Tier != "escalate" {
+		t.Errorf("Tier = %q, want escalate", got.Tier)
+	}
+	if len(got.MatchedSignals) < 2 {
+		t.Errorf("MatchedSignals = %v, want both present escalate signals", got.MatchedSignals)
+	}
+	for _, want := range []string{"workflow_changed", "safeguard_config_changed"} {
+		if !containsStr(got.MatchedSignals, want) {
+			t.Errorf("MatchedSignals %v missing %q", got.MatchedSignals, want)
+		}
+	}
+	if containsStr(got.MatchedSignals, "migration_sql_added") {
+		t.Errorf("MatchedSignals %v includes a non-present signal", got.MatchedSignals)
+	}
+
+	// target_kind drives classification and is reported distinctly.
+	chunk := &report.Report{PR: report.PRInfo{TargetKind: "chunk_completion"}}
+	gotChunk := cfg.ClassifyWithReason(chunk)
+	if gotChunk.Tier != "human" || !gotChunk.ByTargetKind || gotChunk.TargetKind != "chunk_completion" {
+		t.Errorf("chunk classification = %+v, want human/by-target-kind", gotChunk)
+	}
+
+	// No present signals -> default tier, no matched signals.
+	none := &report.Report{PR: report.PRInfo{TargetKind: "implementation"}, Signals: []report.Signal{{ID: "workflow_changed", Present: false}}}
+	gotNone := cfg.ClassifyWithReason(none)
+	if len(gotNone.MatchedSignals) != 0 || gotNone.ByTargetKind {
+		t.Errorf("no-signal classification = %+v, want default with no reason detail", gotNone)
+	}
+}
+
+func containsStr(ss []string, want string) bool {
+	for _, s := range ss {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestSignalTiers_CustomYAMLReload(t *testing.T) {
 	customYAML := `
 signal_tiers:
