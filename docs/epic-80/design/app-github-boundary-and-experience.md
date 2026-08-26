@@ -5,6 +5,7 @@ date: 2026-08-26
 tags: [design, boundaries, ux, server, state, direction]
 related:
   - ../../adr/0006-local-state-is-source-of-truth.md
+  - ../../adr/0007-manage-human-attention-ai-assists-human-decides.md
   - ./escalation-override.md
   - ../deferred/chunk-setup-agent.md
 ---
