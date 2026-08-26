@@ -244,3 +244,6 @@ runs.pr_id not the GitHub number).
   kebab slug (never sequential numbers — two agents would race the same number);
   agents only create files, never edit a shared index, so git can't conflict.
   Fixing a finding flips `status:` in its own file.
+- **[`transfer-out.md`](./transfer-out.md):** owner-curated checklist of
+  conventions/artifacts to graft into the template/seed repo so future projects
+  start chunk-ready (distinct from `deferred/`, which is "fix in pr-triage").
