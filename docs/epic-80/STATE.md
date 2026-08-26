@@ -257,6 +257,21 @@ pinned to head SHA. Tracked as build-item
 to Chunk A/B/C — candidate for its own chunk / a follow-up "stateful control plane"
 epic, alongside per-chunk-triage-config and chunk-setup-agent.
 
+### 2026-08-26 — Swift de-scoped; focus → scanner hardening + state-first TUI/server
+
+Owner decision: **de-scope Swift/SwiftBar (Chunk B — #82/#87/#88/#89, closed as not
+planned for now).** Epic #80 refocuses on (a) finishing scanner hardening (Chunk A +
+Chunk C) and (b) the emerging state-first direction — solidifying local state as the
+source of truth, the TUI, and a server/API layer. Strategic direction (boundaries
+between the app and GitHub, the curated reviewer experience, server/interface
+separation, and the team-scale implication) captured — exploratory — in
+[design/app-github-boundary-and-experience.md](./design/app-github-boundary-and-experience.md).
+Core: rich experience IN the app; minimal, one-way, idempotent projection TO GitHub;
+the app is the attention router. The state-first control-plane items
+([override](./deferred/override-command-state-first.md), per-chunk-triage-config,
+chunk-setup-agent) + this experience work are candidates for a dedicated follow-up
+epic ("stateful control plane & reviewer experience").
+
 ## Conventions in play
 
 - **STATE.md (this file):** single-writer = chunk owner; curated; updated at
