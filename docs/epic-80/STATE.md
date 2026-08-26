@@ -236,6 +236,27 @@ signal→tier overlay so expected changes stay routine; belongs in pr-triage its
 [status-shows-internal-pr-id](./deferred/status-shows-internal-pr-id.md) (status prints
 runs.pr_id not the GitHub number).
 
+### 2026-08-26 — Architectural direction: state-first (ADR 0006) + escalation-override decided
+
+Crystallized a load-bearing stance from the override discussion: **local SQLite
+state is the source of truth; GitHub artifacts (labels/comments/checks) are a
+one-directional projection of it** — inbound signals get interpreted into state,
+outbound projections are reconciled from state, and the app never lets a GitHub
+value it rendered flow back and mutate its own state. Recorded as
+[ADR 0006](../adr/0006-local-state-is-source-of-truth.md). This retro-justifies the
+`escalated→ci_failed` fix and reframes labels as "signal to others," not app state.
+It also positions pr-triage as a provider-decoupleable, local-first workflow tool
+(vs. webhook-bound hosted bots like Prow/Mergify/Renovate).
+
+Decided the human-override design (research memo →
+[design/escalation-override.md](./design/escalation-override.md)): **`pr-triage
+override` local CLI (state-first) as primary, `triage-override` label as
+fast-follow**; override means "run the review agent," waives specific signals,
+pinned to head SHA. Tracked as build-item
+[override-command-state-first](./deferred/override-command-state-first.md). Orthogonal
+to Chunk A/B/C — candidate for its own chunk / a follow-up "stateful control plane"
+epic, alongside per-chunk-triage-config and chunk-setup-agent.
+
 ## Conventions in play
 
 - **STATE.md (this file):** single-writer = chunk owner; curated; updated at

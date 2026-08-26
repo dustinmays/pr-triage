@@ -38,6 +38,7 @@ severity (low|medium|high|n/a), area, found_by, found_in, status
 | [skill-log-build-state](./skill-log-build-state.md) | tooling | n/a | workflow, agents | build a skill encoding how the chunk owner maintains STATE.md |
 | [per-chunk-triage-config](./per-chunk-triage-config.md) | enhancement | high | config, orchestrator, product | chunk-owner-scoped signal→tier overlay; infra chunks are all-escalate without it |
 | [chunk-setup-agent](./chunk-setup-agent.md) | enhancement | high | cli, config, agents, product | interactive setup command/agent that tailors BOTH the pre-scan tiers and the review agent def from repo + chunk charter |
+| [override-command-state-first](./override-command-state-first.md) | build-item | high | cli, orchestrator, poller, db | DECIDED: `pr-triage override` local state-first per-PR escalation override (see [design](../design/escalation-override.md)) |
 | [escalation-comment-lacks-trigger-reason](./escalation-comment-lacks-trigger-reason.md) | enhancement | medium | orchestrator, escalate, observability | escalation comment/stop_reason should name the triggering signal + evidence, not just "escalate tripped" |
 | [escalated-state-overwritten-by-ci-failed](./escalated-state-overwritten-by-ci-failed.md) | bug | medium | poller, escalate | escalated PR flips to `ci_failed` on re-poll (escalated not terminal; red owner-review-gate misread as CI fail) |
 | [status-shows-internal-pr-id](./status-shows-internal-pr-id.md) | bug | low | cli, observability | `status` prints internal `runs.pr_id` instead of the GitHub PR number |
