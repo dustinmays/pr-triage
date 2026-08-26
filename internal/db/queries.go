@@ -258,21 +258,25 @@ func ListRuns(db *sqlx.DB, limit int) ([]Run, error) {
 	var err error
 	if limit > 0 {
 		query := `
-			SELECT id, pr_id, head_sha, ci_run_id, risk_tier, runtime, model, model_source,
-			       cost_usd, cost_basis, turns, status, stop_reason, pid, log_path,
-			       worktree_path, started_at, finished_at
-			FROM runs
-			ORDER BY id DESC
+			SELECT r.id, r.pr_id, p.number AS pr_number, r.head_sha, r.ci_run_id, r.risk_tier,
+			       r.runtime, r.model, r.model_source, r.cost_usd, r.cost_basis, r.turns,
+			       r.status, r.stop_reason, r.pid, r.log_path, r.worktree_path,
+			       r.started_at, r.finished_at
+			FROM runs r
+			LEFT JOIN prs p ON p.id = r.pr_id
+			ORDER BY r.id DESC
 			LIMIT ?
 		`
 		err = db.Select(&runs, query, limit)
 	} else {
 		query := `
-			SELECT id, pr_id, head_sha, ci_run_id, risk_tier, runtime, model, model_source,
-			       cost_usd, cost_basis, turns, status, stop_reason, pid, log_path,
-			       worktree_path, started_at, finished_at
-			FROM runs
-			ORDER BY id DESC
+			SELECT r.id, r.pr_id, p.number AS pr_number, r.head_sha, r.ci_run_id, r.risk_tier,
+			       r.runtime, r.model, r.model_source, r.cost_usd, r.cost_basis, r.turns,
+			       r.status, r.stop_reason, r.pid, r.log_path, r.worktree_path,
+			       r.started_at, r.finished_at
+			FROM runs r
+			LEFT JOIN prs p ON p.id = r.pr_id
+			ORDER BY r.id DESC
 		`
 		err = db.Select(&runs, query)
 	}

@@ -6,7 +6,7 @@ severity: low
 area: cli, observability
 found_by: dustinmays
 found_in: chunk/scanner-hardening live dogfood (2026-08-25)
-status: open
+status: resolved (#100 / D.3, 2026-08-26)
 related:
   - ../../../internal/cli/status.go   # renders "PR #<...>" from run rows
   - ../../../internal/db/schema.go      # runs.pr_id is a FK to prs.id, not the GitHub number
@@ -37,3 +37,14 @@ internal id is actively misleading ("PR #27" points at a PR that isn't #27).
 `status` should resolve/join `runs.pr_id → prs.number` and display the GitHub
 number (keep the internal id out of the UI, or label it distinctly). Check other
 display paths (logs, checkout TUI) for the same confusion.
+
+## Resolution (D.3 / #100)
+
+`db.Run` gained a read-only `PRNumber` field populated by a `LEFT JOIN prs` in
+`ListRuns` (`p.number AS pr_number`); inserts/updates never write it. `status`
+now renders `r.PRNumber`. The audit found the **checkout TUI had the same bug and
+worse**: it used `runs.pr_id` for the display, the GitHub PR **URL**
+(`getPRURL`), and the re-trigger `UpsertPRState` call — so re-trigger wrote state
+under the wrong PR number and "open PR" pointed at the wrong URL. All switched to
+`PRNumber`. Covered by `TestListRuns_PopulatesGitHubPRNumber` (uses a GitHub
+number distinct from the internal pr_id) and the updated TUI tests.

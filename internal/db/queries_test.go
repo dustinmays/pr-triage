@@ -232,6 +232,55 @@ func TestGetPRState(t *testing.T) {
 	}
 }
 
+func TestListRuns_PopulatesGitHubPRNumber(t *testing.T) {
+	store := setupTestDB(t)
+
+	repo, err := store.UpsertRepo(&Repo{
+		Owner:        "dustinmays",
+		Name:         "pr-triage",
+		BaseRef:      "main",
+		PollInterval: "5m",
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepo: %v", err)
+	}
+
+	// Use a GitHub PR number that is deliberately different from the internal
+	// pr_id (autoincrement starting at 1) so a regression to pr_id is caught.
+	const githubNumber = 94
+	pr, err := store.UpsertPRState(repo.ID, githubNumber, "sha-1", nil, "escalated")
+	if err != nil {
+		t.Fatalf("UpsertPRState: %v", err)
+	}
+	if pr.ID == githubNumber {
+		t.Fatalf("test precondition: internal pr_id (%d) must differ from GitHub number (%d)", pr.ID, githubNumber)
+	}
+
+	if _, err := store.RecordRun(&Run{
+		PRID:      pr.ID,
+		HeadSHA:   "sha-1",
+		RiskTier:  "escalated",
+		Runtime:   "none",
+		Model:     "none",
+		CostBasis: "unavailable",
+		Status:    "escalated",
+	}); err != nil {
+		t.Fatalf("RecordRun: %v", err)
+	}
+
+	runs, err := store.ListRuns(10)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+	if runs[0].PRNumber != githubNumber {
+		t.Errorf("run.PRNumber = %d, want the GitHub PR number %d (not internal pr_id %d)",
+			runs[0].PRNumber, githubNumber, runs[0].PRID)
+	}
+}
+
 func TestRecordRun_AndCostHonesty(t *testing.T) {
 	store := setupTestDB(t)
 

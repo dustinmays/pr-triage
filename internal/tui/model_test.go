@@ -57,7 +57,8 @@ func TestTUI_NavigationAndSelection(t *testing.T) {
 	runs := []db.Run{
 		{
 			ID:        1,
-			PRID:      101,
+			PRID:      11, // internal pr_id, distinct from the GitHub number
+			PRNumber:  101,
 			HeadSHA:   "sha-1",
 			RiskTier:  "critical",
 			Runtime:   "claude-code",
@@ -69,7 +70,8 @@ func TestTUI_NavigationAndSelection(t *testing.T) {
 		},
 		{
 			ID:        2,
-			PRID:      102,
+			PRID:      12, // internal pr_id, distinct from the GitHub number
+			PRNumber:  102,
 			HeadSHA:   "sha-2",
 			RiskTier:  "routine",
 			Runtime:   "claude-code",
@@ -162,7 +164,8 @@ func TestTUI_ActionMenu_EnterActions(t *testing.T) {
 		runs: []db.Run{
 			{
 				ID:       5,
-				PRID:     77,
+				PRID:     7, // internal pr_id, distinct from the GitHub number
+				PRNumber: 77,
 				HeadSHA:  "sha-77",
 				RiskTier: "routine",
 				Model:    "sonnet",

@@ -47,4 +47,9 @@ type Run struct {
 	WorktreePath string  `db:"worktree_path" json:"worktree_path"`
 	StartedAt    string  `db:"started_at" json:"started_at"`
 	FinishedAt   *string `db:"finished_at" json:"finished_at"`
+
+	// PRNumber is the GitHub PR number, joined from prs.number for display. It is
+	// read-only (not a runs column) and is only populated by queries that join
+	// prs (e.g. ListRuns); inserts/updates never write it.
+	PRNumber int `db:"pr_number" json:"pr_number"`
 }
