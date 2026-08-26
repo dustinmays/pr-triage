@@ -210,6 +210,32 @@ chunk/scanner-hardening.** 7 bugs found+fixed via live dogfood, none caught by
 tests: config defaults, db dir, report-check-by-name, adapter registration, agent
 permission mode, review delivery (agent→orchestrator), read-only-token+silent-fail.
 
+### 2026-08-25 — Wave 1 built + live-triaged; escalation dominates infra work
+
+Two autopilot agents built Chunk A/C sub-issues cleanly: **PR #95** (#84 —
+prescan test harness + `make prescan-test` + `test_files_deleted` reference) and
+**PR #94** (#90 — shellcheck-clean scanner + shellcheck CI job). Both green on all
+functional CI. The rebuilt daemon (from this chunk branch) triaged both correctly
+and **escalated** them: #94 on `workflow_changed` (adds a CI job), #95 on
+`safeguard_config_changed` (edits the Makefile) → `needs-owner-review` label →
+`owner-review-gate` red → merge blocked, awaiting owner review.
+
+Key operational insight: this chunk's work IS infra (CI/Makefile/scanner), so
+nearly every PR trips an escalate signal and routes to human — the routine
+auto-review lane barely applies. Autonomous drive-to-completion is therefore
+blocked on owner review (Wave 2 #85/#86 need #84's harness merged first). Paused
+here per the "stop on real difficulty" instruction.
+
+Four findings captured to deferred/ from this run:
+[per-chunk-triage-config](./deferred/per-chunk-triage-config.md) (high — chunk-owner
+signal→tier overlay so expected changes stay routine; belongs in pr-triage itself),
+[escalation-comment-lacks-trigger-reason](./deferred/escalation-comment-lacks-trigger-reason.md)
+(name the signal+evidence in the escalation comment, not "escalate tripped"),
+[escalated-state-overwritten-by-ci-failed](./deferred/escalated-state-overwritten-by-ci-failed.md)
+(escalated → ci_failed drift), and
+[status-shows-internal-pr-id](./deferred/status-shows-internal-pr-id.md) (status prints
+runs.pr_id not the GitHub number).
+
 ## Conventions in play
 
 - **STATE.md (this file):** single-writer = chunk owner; curated; updated at
