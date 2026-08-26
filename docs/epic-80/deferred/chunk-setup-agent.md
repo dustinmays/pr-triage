@@ -9,11 +9,10 @@ found_in: chunk/scanner-hardening live dogfood (2026-08-25)
 status: open
 related:
   - ./per-chunk-triage-config.md              # the config surface this produces (deterministic side)
-  - ../../../internal/cli/init.go              # could extend init, or a new `setup`/`configure` command
+  - ../../../internal/cli/init.go              # `setup` extends/wraps this for registration
   - ../../../agents/review-agent.md            # the probabilistic side this could tailor
-  - ./skill-log-build-state.md
-  - ./skill-defer-finding.md
   - ./workflow-install-command.md              # sibling: installs the pre-scan workflow itself
+  - ../transfer-out.md                        # STATE.md/deferred/ convention lives in the template repo, not here
 ---
 
 ## What
@@ -40,8 +39,34 @@ pr-triage controls:
 - **Read the chunk's parent issue** (the epic/chunk charter) to understand the
   intended scope and what changes are *expected* (so expected changes stay routine
   instead of all-escalating — the pain observed in this chunk).
-- **Emit tailored config**: the per-chunk `signal_tiers` overlay AND a tailored
-  agent def, so both the deterministic gate and the LLM reviewer fit this work.
+- **Emit tailored config**: the per-chunk `signal_tiers` overlay (per
+  [per-chunk-triage-config](./per-chunk-triage-config.md)) AND a tailored agent
+  def, so both the deterministic gate and the LLM reviewer fit this work.
+
+## Scope boundary (decided 2026-08-26)
+
+`pr-triage setup` owns exactly two artifacts, both pr-triage-native:
+1. The repo/base-ref registration (extends what `init` already does —
+   `internal/cli/init.go`).
+2. The `.pr-triage/chunks/<base-ref>.yaml` signal-tier overlay + a tailored
+   `.claude/agents/review-agent.md`.
+
+It does **not** scaffold `STATE.md`, `deferred/`, or `transfer-out.md`. That
+build-state/knowledge-base convention is owned by the chunk owner and their
+orchestrating agent, living under `docs/<epic-or-chunk>/` **in the target repo**,
+and is expected to be seeded by a skill in the template/seed repo (see
+`transfer-out.md`), not by this tool. pr-triage stays a reviewer/gate; it doesn't
+own the human/agent collaboration record. `chunk-setup-agent` may *read*
+STATE.md's frontmatter (chunk charter, expected scope) as input if present, but
+never writes it.
+
+Also decided: pr-triage tracks **one active base_ref per repo** for now (the
+`repos` table is keyed on `(owner, name)`, and `UpsertRepo` overwrites
+`base_ref` — there's no multi-chunk-concurrent tracking today). Re-running
+`setup` against a new chunk branch repoints the existing registration rather
+than adding a second tracked line of work. Concurrent multi-chunk tracking
+(schema change to key on `(owner, name, base_ref)`) is out of scope here and
+would be its own deferred item if ever needed.
 
 ## Why it matters
 
@@ -54,9 +79,13 @@ together, from the same repo+charter understanding.
 
 ## Notes / open questions
 
-- Extend `init` vs. a dedicated command? Leaning dedicated (`setup`/`configure`)
-  so it can be re-run per chunk without re-registering the repo.
+- Extend `init` vs. wrap it from a new `setup` command? `init` already does the
+  registration + config write; `setup`'s distinct job is the interactive
+  tailoring (stack detection, charter read, overlay + agent-def generation).
+  Could be `init` with a new flag, or `setup` calling `init`'s registration
+  internally — not yet decided.
 - Interactive-by-default, every prompt also a flag (matches the existing init
   pattern) so it stays scriptable.
-- Overlaps with the [chunk-setup skill](./skill-log-build-state.md) idea — the
-  skill could be the agent's playbook; this finding is the command that invokes it.
+- The template repo's own chunk-kickoff skill (STATE.md/deferred/ scaffolding)
+  is a separate, sequenced step — likely run before or alongside `pr-triage
+  setup`, not by it. See the scope boundary above.
