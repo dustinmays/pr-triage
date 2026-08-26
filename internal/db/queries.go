@@ -66,6 +66,23 @@ func (s *Store) RunsInState(state string) ([]Run, error) {
 	return RunsInState(s.db, state)
 }
 
+// RecordOverride inserts a human override waiving escalate-tier signals on a PR
+// at a specific head SHA.
+func (s *Store) RecordOverride(ov *Override) (*Override, error) {
+	return RecordOverride(s.db, ov)
+}
+
+// GetActiveOverride returns the most recent unconsumed override for a PR at the
+// given head SHA, or ErrNotFound when none is active.
+func (s *Store) GetActiveOverride(repoID int64, prNumber int, headSHA string) (*Override, error) {
+	return GetActiveOverride(s.db, repoID, prNumber, headSHA)
+}
+
+// MarkOverrideConsumed stamps consumed_at on an override so it applies once.
+func (s *Store) MarkOverrideConsumed(id int64) error {
+	return MarkOverrideConsumed(s.db, id)
+}
+
 // UpsertRepo inserts a new repository or updates an existing repository
 // matching (owner, name). It returns the inserted or updated Repo.
 func UpsertRepo(db *sqlx.DB, repo *Repo) (*Repo, error) {
@@ -284,6 +301,64 @@ func ListRuns(db *sqlx.DB, limit int) ([]Run, error) {
 		return nil, fmt.Errorf("db: list runs: %w", err)
 	}
 	return runs, nil
+}
+
+// RecordOverride inserts a human override row and returns it with its assigned ID.
+func RecordOverride(db *sqlx.DB, ov *Override) (*Override, error) {
+	if ov == nil {
+		return nil, fmt.Errorf("db: override cannot be nil")
+	}
+	if ov.PRNumber <= 0 || ov.HeadSHA == "" {
+		return nil, fmt.Errorf("db: override requires a pr_number and head_sha")
+	}
+	res, err := db.Exec(
+		`INSERT INTO overrides (repo_id, pr_number, head_sha, waived_signals, reason)
+		 VALUES (?, ?, ?, ?, ?)`,
+		ov.RepoID, ov.PRNumber, ov.HeadSHA, ov.WaivedSignals, ov.Reason,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("db: record override: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("db: override last insert id: %w", err)
+	}
+	ov.ID = id
+	return ov, nil
+}
+
+// GetActiveOverride returns the most recent unconsumed override matching
+// (repoID, prNumber, headSHA). Pinning on head SHA means a new push, which
+// changes the SHA, leaves no active override — the PR re-escalates rather than
+// riding a stale waiver. Returns ErrNotFound when none is active.
+func GetActiveOverride(db *sqlx.DB, repoID int64, prNumber int, headSHA string) (*Override, error) {
+	var ov Override
+	err := db.Get(&ov,
+		`SELECT id, repo_id, pr_number, head_sha, waived_signals, reason, created_at, consumed_at
+		 FROM overrides
+		 WHERE repo_id = ? AND pr_number = ? AND head_sha = ? AND consumed_at IS NULL
+		 ORDER BY id DESC
+		 LIMIT 1`,
+		repoID, prNumber, headSHA,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("db: get active override: %w", err)
+	}
+	return &ov, nil
+}
+
+// MarkOverrideConsumed sets consumed_at on an override, making it one-shot.
+func MarkOverrideConsumed(db *sqlx.DB, id int64) error {
+	if _, err := db.Exec(
+		`UPDATE overrides SET consumed_at = datetime('now') WHERE id = ? AND consumed_at IS NULL`,
+		id,
+	); err != nil {
+		return fmt.Errorf("db: mark override consumed: %w", err)
+	}
+	return nil
 }
 
 // RunsInState returns all runs matching the given status, ordered newest first.

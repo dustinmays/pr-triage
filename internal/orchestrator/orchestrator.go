@@ -46,6 +46,8 @@ type Store interface {
 	RecordRun(run *db.Run) (*db.Run, error)
 	UpdateRun(run *db.Run) error
 	RunsInState(state string) ([]db.Run, error)
+	GetActiveOverride(repoID int64, prNumber int, headSHA string) (*db.Override, error)
+	MarkOverrideConsumed(id int64) error
 }
 
 // ConfigLoader loads repository or global configuration.
@@ -352,6 +354,64 @@ func quoteAll(ss []string) []string {
 	return out
 }
 
+// applyOverride consults for an active human override before a PR is escalated.
+// It returns (routeToAgent, reason):
+//   - routeToAgent=true  -> the escalation is fully waived; the caller should run
+//     the review agent instead of escalating. The override is marked consumed.
+//   - routeToAgent=false -> escalate; reason explains why (naming any signals
+//     that remain after a partial waiver, or the unmodified escalation reason
+//     when there is no override).
+//
+// target_kind-driven escalations (e.g. chunk_completion) are intentional human
+// gates and are never waived here — only signal-driven escalations are.
+func (o *Orchestrator) applyOverride(
+	event poller.ReportReadyEvent,
+	rep *report.Report,
+	class config.Classification,
+) (bool, string) {
+	baseReason := escalationReason(rep, class)
+
+	// Only signal-driven escalations are waivable.
+	if class.ByTargetKind || len(class.MatchedSignals) == 0 {
+		return false, baseReason
+	}
+
+	ov, err := o.store.GetActiveOverride(event.Repo.ID, event.PRNumber, event.HeadSHA)
+	if err != nil || ov == nil {
+		return false, baseReason
+	}
+
+	// Determine which of the matched (escalate-tier, present) signals remain
+	// after applying the waiver. An empty waiver list waives all of them.
+	waived := make(map[string]bool)
+	if !ov.WaivesAll() {
+		for _, s := range ov.WaivedSignalList() {
+			waived[s] = true
+		}
+	}
+	var remaining []string
+	for _, s := range class.MatchedSignals {
+		if ov.WaivesAll() || waived[s] {
+			continue
+		}
+		remaining = append(remaining, s)
+	}
+
+	if len(remaining) == 0 {
+		// Fully waived: consume the override (one-shot) and route to the agent.
+		_ = o.store.MarkOverrideConsumed(ov.ID)
+		return true, ""
+	}
+
+	// Partial waiver: still escalate, but only for the signals that remain.
+	reason := fmt.Sprintf(
+		"Escalation partially overridden: %s waived by owner; still requires review for signal(s) %s.",
+		strings.Join(quoteAll(ov.WaivedSignalList()), ", "),
+		strings.Join(quoteAll(remaining), ", "),
+	)
+	return false, reason
+}
+
 // HandleReportReady processes a single report_ready event end-to-end.
 func (o *Orchestrator) HandleReportReady(ctx context.Context, event poller.ReportReadyEvent) error {
 	// 1. Fetch config for repo
@@ -385,14 +445,26 @@ func (o *Orchestrator) HandleReportReady(ctx context.Context, event poller.Repor
 	tier := class.Tier
 
 	if tier == "human" || tier == "escalate" {
-		return o.escalator.Escalate(ctx, escalate.Request{
-			Repo:       event.Repo,
-			PRNumber:   event.PRNumber,
-			HeadSHA:    event.HeadSHA,
-			Reason:     escalationReason(rep, class),
-			CIRunID:    &event.CheckRunID,
-			GitHubUser: cfg.GitHubUser,
-		})
+		// Consult a human override (D.4) before escalating. This is the
+		// state-first escape hatch: the owner can waive the specific signal(s)
+		// that would escalate — pinned to this head SHA — and let the review
+		// agent run instead. No daemon restart required; state is read per event.
+		routeToAgent, reason := o.applyOverride(event, rep, class)
+		if !routeToAgent {
+			return o.escalator.Escalate(ctx, escalate.Request{
+				Repo:       event.Repo,
+				PRNumber:   event.PRNumber,
+				HeadSHA:    event.HeadSHA,
+				Reason:     reason,
+				CIRunID:    &event.CheckRunID,
+				GitHubUser: cfg.GitHubUser,
+			})
+		}
+		// Fully waived -> fall through to the default (routine) tier and route.
+		tier = cfg.SignalTiers.DefaultTier
+		if tier == "" {
+			tier = "routine"
+		}
 	}
 
 	// 4. Route risk tier

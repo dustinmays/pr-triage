@@ -31,7 +31,7 @@ func DefaultDBPath() string {
 // schemaVersion is the target schema version. Bump it by one whenever a new
 // migration block is appended to migrate, and never edit a past migration
 // block after the fact (see docs/persistence-discipline.md).
-const schemaVersion = 2
+const schemaVersion = 3
 
 // Open opens (creating if necessary) the SQLite database at path, applies
 // the required pragmas, enforces single-writer discipline, and runs any
@@ -174,6 +174,34 @@ func migrate(db *sqlx.DB) error {
 			return fmt.Errorf("migration v2: %w", err)
 		}
 		version = 2
+	}
+
+	if version < 3 {
+		// Human overrides for escalated PRs (D.4). A row records that the owner
+		// waived specific escalate-tier signals on a PR at a specific head SHA,
+		// letting the review agent run instead of escalating. Pinned to head_sha
+		// so a new push invalidates it (state-first; see ADR 0006 and
+		// docs/epic-80/design/escalation-override.md). waived_signals is a
+		// comma-separated list of signal IDs; empty means "waive all escalate-tier
+		// signals present at this SHA". consumed_at is set when the override is
+		// applied, giving a one-shot audit trail.
+		if _, err := tx.Exec(`
+			CREATE TABLE IF NOT EXISTS overrides (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				repo_id INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+				pr_number INTEGER NOT NULL,
+				head_sha TEXT NOT NULL,
+				waived_signals TEXT NOT NULL DEFAULT '',
+				reason TEXT NOT NULL DEFAULT '',
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				consumed_at TEXT
+			);
+
+			CREATE INDEX IF NOT EXISTS idx_overrides_lookup ON overrides(repo_id, pr_number, head_sha);
+		`); err != nil {
+			return fmt.Errorf("migration v3: %w", err)
+		}
+		version = 3
 	}
 
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", version)); err != nil {
