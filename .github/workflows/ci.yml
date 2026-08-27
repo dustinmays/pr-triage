@@ -125,3 +125,15 @@ jobs:
         with:
           go-version-file: 'go.mod'
       - run: make test-race
+
+  prescan-test:
+    name: prescan-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update && sudo apt-get install -y jq
+      - run: make prescan-test
