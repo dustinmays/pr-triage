@@ -108,6 +108,20 @@ var initCmd = &cobra.Command{
 			Model:        modelName,
 		}
 
+		// Make --model concrete: pin it into routing.routine.model so the agent
+		// actually runs on it. The top-level Model field alone is NOT consulted
+		// at agent invocation (the orchestrator routes on routing.<tier>.model),
+		// so without this the flag is a silent no-op. Only touch routing when a
+		// model was explicitly provided; otherwise leave routing unset so the
+		// daemon's DefaultConfig routing applies unchanged.
+		if modelName != "" {
+			routing := config.DefaultConfig().Routing
+			r := routing["routine"]
+			r.Model = modelName
+			routing["routine"] = r
+			cfg.Routing = routing
+		}
+
 		configRelPath := filepath.Join(".pr-triage", "config.yaml")
 		configAbsPath := filepath.Join(repoDir, configRelPath)
 		if err := config.Save(configAbsPath, cfg); err != nil {

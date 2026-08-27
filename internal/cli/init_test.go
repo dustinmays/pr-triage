@@ -91,3 +91,40 @@ func TestInitCommandNonInteractive(t *testing.T) {
 		t.Fatalf("expected updated repo row, got: %+v", reposAfter[0])
 	}
 }
+
+func TestInitModelPinsRoutineRouting(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	repoDir := filepath.Join(tmpDir, "my-repo")
+
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{
+		"init",
+		"--non-interactive",
+		"--owner", "dustinmays",
+		"--name", "my-repo",
+		"--base-ref", "main",
+		"--model", "claude-opus-4-8",
+		"--db-path", dbPath,
+		"--repo-dir", repoDir,
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("rootCmd.Execute() error: %v", err)
+	}
+
+	cfgPath := filepath.Join(repoDir, ".pr-triage", "config.yaml")
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load(%s) error: %v", cfgPath, err)
+	}
+	got := cfg.Routing["routine"].Model
+	if got != "claude-opus-4-8" {
+		t.Fatalf("routing.routine.model = %q, want %q", got, "claude-opus-4-8")
+	}
+	// The routine routing entry must stay otherwise intact (runtime + agent def).
+	if cfg.Routing["routine"].Runtime != "claude-code" || cfg.Routing["routine"].AgentDef != "review-agent" {
+		t.Fatalf("routine routing lost its runtime/agent def: %+v", cfg.Routing["routine"])
+	}
+}

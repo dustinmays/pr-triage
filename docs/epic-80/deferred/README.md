@@ -29,7 +29,6 @@ severity (low|medium|high|n/a), area, found_by, found_in, status
 
 | Finding | Kind | Sev | Area | Notes |
 |---------|------|-----|------|-------|
-| [config-model-silently-ignored](./config-model-silently-ignored.md) | bug | medium | config, orchestrator | `--model` / top-level `config.model` is ignored; agent runs on `routing.Model` |
 | [agent-permission-mode-hardening](./agent-permission-mode-hardening.md) | enhancement | medium | runtime, security | agent now uses `bypassPermissions`; tighten to a scoped allowlist / make configurable |
 | [report-check-name-coupling-fragile](./report-check-name-coupling-fragile.md) | enhancement | medium | poller, report, workflows | daemon hard-couples to a check named `pr-prescan-report`; missing → silent `ci_failed` drop |
 | [workflow-install-command](./workflow-install-command.md) | enhancement | low | cli, workflows | `pr-triage workflow` to install/ensure the pre-scan CI job exists |
@@ -50,4 +49,5 @@ severity (low|medium|high|n/a), area, found_by, found_in, status
 | Finding | Kind | Area | Resolution |
 |---------|------|------|------------|
 | [orchestrator-should-post-review-comment](./orchestrator-should-post-review-comment.md) | enhancement | orchestrator, agents | orchestrator now posts the agent's `Result.Summary` deterministically (marker + truncation); update-or-create idempotency is the small remaining follow-up |
+| [config-model-silently-ignored](./config-model-silently-ignored.md) | bug | config, orchestrator | #112 — init pins `--model` into `routing.routine.model` so the agent actually runs on it |
 | [scanner-scans-its-own-test-fixtures](./scanner-scans-its-own-test-fixtures.md) | bug | scanner, poller | #111 — `SIGNAL_EXCLUDE_RE` filters `scripts/prescan-test/fixtures/**` + `**/testdata/**` out of signal inputs (diff counts unaffected); `edge_fixture_paths` fixture proves it |

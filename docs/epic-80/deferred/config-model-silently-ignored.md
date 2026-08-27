@@ -6,7 +6,8 @@ severity: medium
 area: config, orchestrator
 found_by: claude
 found_in: chunk/scanner-hardening dogfood setup (2026-08-23)
-status: open
+status: fixed
+fixed_in: "#112 — init pins --model into routing.routine.model so the agent runs on it"
 related:
   - ../../../internal/orchestrator/orchestrator.go   # uses routing.Model (~line 366, 422)
   - ../../../internal/config/config.go               # DefaultConfig routing table + top-level Model field
