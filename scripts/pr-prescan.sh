@@ -233,7 +233,15 @@ BASE_TIP="$(git rev-parse FETCH_HEAD)"
 BASE_SHA="$(git merge-base "$BASE_TIP" "$HEAD_SHA")" ||
   emit_error "no merge base between $BASE_REF and the PR head"
 
+# Paths that are scanner TEST DATA, not real repo changes: exclude them from
+# signal evaluation so a PR that merely adds fixtures/testdata does not trip
+# signals. The diff/numstat block is intentionally NOT filtered — these are
+# still real file changes and should show in the diff counts.
+readonly SIGNAL_EXCLUDE_RE='^scripts/prescan-test/fixtures/|(^|/)testdata/'
+
 git diff --name-status --find-renames "$BASE_SHA" "$HEAD_SHA" >"$TMP/status.tsv"
+awk -F'\t' -v re="$SIGNAL_EXCLUDE_RE" '
+  { p = ($3 != "" ? $3 : $2) } p !~ re' "$TMP/status.tsv" >"$TMP/status.tsv.f" && mv "$TMP/status.tsv.f" "$TMP/status.tsv"
 git diff --numstat "$BASE_SHA" "$HEAD_SHA" >"$TMP/numstat.tsv"
 git diff -U0 --no-color --find-renames "$BASE_SHA" "$HEAD_SHA" >"$TMP/diff.txt"
 
@@ -258,6 +266,10 @@ awk -F'\n' '
 grep -E '^\+' "$TMP/lines.tsv" | cut -f2- >"$TMP/added.tsv" || true
 grep -E '^-' "$TMP/lines.tsv" | cut -f2- >"$TMP/removed.tsv" || true
 touch "$TMP/added.tsv" "$TMP/removed.tsv"
+
+for tsv in added removed; do
+  awk -F'\t' -v re="$SIGNAL_EXCLUDE_RE" '$1 !~ re' "$TMP/$tsv.tsv" >"$TMP/$tsv.tsv.f" && mv "$TMP/$tsv.tsv.f" "$TMP/$tsv.tsv"
+done
 
 added_matching() {
   awk -F'\t' -v pre="$1" -v cre="$2" '$1 ~ pre && $3 ~ cre { print $1 "\t" $2 "\t" $3 }' "$TMP/added.tsv"

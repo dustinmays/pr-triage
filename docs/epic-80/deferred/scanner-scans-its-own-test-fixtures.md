@@ -6,7 +6,8 @@ severity: medium
 area: scanner, poller, orchestrator
 found_by: dustinmays
 found_in: chunk/scanner-hardening — reviewing the A.2 golden-fixture PR #106 (2026-08-27)
-status: open
+status: fixed
+fixed_in: "#111 — SIGNAL_EXCLUDE_RE filters scripts/prescan-test/fixtures/** and **/testdata/** out of signal inputs (status/added/removed), diff counts unaffected; fixture edge_fixture_paths proves it"
 related:
   - ../../../scripts/pr-prescan.sh          # signal path regexes use (^|/), not ^-anchored
   - ../../../scripts/prescan-test/fixtures/  # fixtures embed internal/db/, Makefile, go.mod, etc.

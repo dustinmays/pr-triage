@@ -1,0 +1,96 @@
+{
+  "chunk": null,
+  "ci": {
+    "failing_checks": [],
+    "status": "none"
+  },
+  "diff": {
+    "deletions": 0,
+    "files_changed": 4,
+    "generated_files": 0,
+    "insertions": 6,
+    "largest_file": {
+      "changed": 3,
+      "path": "scripts/prescan-test/fixtures/demo/_base/go.mod"
+    },
+    "source_files": 4,
+    "source_insertions": 6,
+    "top_level_dirs": [
+      "internal",
+      "scripts"
+    ]
+  },
+  "notes": [],
+  "pr": {
+    "base": "chunk/scanner-hardening",
+    "head": "feat/add-prescan-fixtures",
+    "issue_refs": [],
+    "number": 120,
+    "target_kind": "implementation",
+    "title": "Add scanner test fixtures"
+  },
+  "schema_version": 1,
+  "signals": [
+    {
+      "evidence": [],
+      "id": "migration_sql_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "migration_history_rewritten",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "schema_changed_without_migration",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "dependency_manifest_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "install_execution_allowed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "test_files_deleted",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "tests_skipped_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "safeguard_config_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "suppressions_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "workflow_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "stack_choice_changed",
+      "present": false
+    }
+  ],
+  "stack": {
+    "framework": null,
+    "linter": null,
+    "orm": null,
+    "package_manager": "go"
+  }
+}
