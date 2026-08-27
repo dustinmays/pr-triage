@@ -20,5 +20,6 @@ fmt-check:
 
 prescan-test:
 	bash scripts/prescan-test/run.sh
+	bash scripts/prescan-test/error-cases.sh
 
 all: build vet lint test fmt-check

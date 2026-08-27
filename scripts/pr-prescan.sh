@@ -54,6 +54,37 @@ die() {
   exit 1
 }
 
+# Emit a minimal but valid schema_version:1 error document and exit 0.
+# Used for runtime failures (can't read the PR, can't fetch a ref, no merge
+# base): the scan reports facts and never fails the build, so a failure is
+# reported AS a document, not as a non-zero exit. Requires jq (already checked).
+emit_error() {
+  local msg="$1"
+  echo "pr-prescan: $msg (emitting error document)" >&2
+  local doc
+  doc="$(jq -n \
+    --argjson number "${PR_NUMBER:-0}" \
+    --arg title "${PR_TITLE:-unknown}" \
+    --arg base "${BASE_REF:-unknown}" \
+    --arg head "${HEAD_REF:-unknown}" \
+    --arg error "$msg" \
+    '{ schema_version: 1,
+       pr: { number: $number, title: $title, base: $base, head: $head },
+       ci: { status: "none", failing_checks: [] },
+       stack: {},
+       diff: {},
+       signals: [],
+       notes: [],
+       error: $error }')"
+  if [ -n "${OUT:-}" ]; then
+    printf '%s\n' "$doc" >"$OUT"
+    echo "pr-prescan: wrote $OUT" >&2
+  else
+    printf '%s\n' "$doc"
+  fi
+  exit 0
+}
+
 # ---------------------------------------------------------------- arguments ---
 
 PR_NUMBER=""
@@ -122,12 +153,12 @@ evidence_json() {
 
 if [ -z "$REPO" ]; then
   REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)" ||
-    die "could not resolve the repository; pass --repo owner/name"
+    emit_error "could not resolve the repository; pass --repo owner/name"
 fi
 
 gh pr view "$PR_NUMBER" --repo "$REPO" \
   --json number,title,baseRefName,headRefName,headRefOid,body,statusCheckRollup \
-  >"$TMP/pr.json" || die "could not read PR #$PR_NUMBER in $REPO"
+  >"$TMP/pr.json" || emit_error "could not read PR #$PR_NUMBER in $REPO"
 
 PR_TITLE="$(jq -r '.title' "$TMP/pr.json")"
 BASE_REF="$(jq -r '.baseRefName' "$TMP/pr.json")"
@@ -175,7 +206,7 @@ CHUNK_JSON=null
 if [ "$TARGET_KIND" = "chunk_completion" ]; then
   gh pr list --repo "$REPO" --base "$HEAD_REF" --state merged --limit 500 \
     --json number,title,body,labels >"$TMP/chunk_prs.json" ||
-    die "could not list pull requests merged into $HEAD_REF"
+    emit_error "could not list pull requests merged into $HEAD_REF"
 
   CHUNK_JSON="$(jq -c --arg branch "$HEAD_REF" '
     {
@@ -192,15 +223,15 @@ fi
 # -------------------------------------------------------------- fetch diff ---
 
 git fetch --quiet --no-tags "$REMOTE" "refs/pull/$PR_NUMBER/head" ||
-  die "could not fetch refs/pull/$PR_NUMBER/head from $REMOTE"
+  emit_error "could not fetch refs/pull/$PR_NUMBER/head from $REMOTE"
 HEAD_SHA="$(git rev-parse FETCH_HEAD)"
 
 git fetch --quiet --no-tags "$REMOTE" "refs/heads/$BASE_REF" ||
-  die "could not fetch base branch $BASE_REF from $REMOTE"
+  emit_error "could not fetch base branch $BASE_REF from $REMOTE"
 BASE_TIP="$(git rev-parse FETCH_HEAD)"
 
 BASE_SHA="$(git merge-base "$BASE_TIP" "$HEAD_SHA")" ||
-  die "no merge base between $BASE_REF and the PR head"
+  emit_error "no merge base between $BASE_REF and the PR head"
 
 git diff --name-status --find-renames "$BASE_SHA" "$HEAD_SHA" >"$TMP/status.tsv"
 git diff --numstat "$BASE_SHA" "$HEAD_SHA" >"$TMP/numstat.tsv"
