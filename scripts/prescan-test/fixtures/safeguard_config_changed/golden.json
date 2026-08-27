@@ -1,0 +1,101 @@
+{
+  "chunk": null,
+  "ci": {
+    "failing_checks": [],
+    "status": "none"
+  },
+  "diff": {
+    "deletions": 2,
+    "files_changed": 1,
+    "generated_files": 0,
+    "insertions": 5,
+    "largest_file": {
+      "changed": 7,
+      "path": "Makefile"
+    },
+    "source_files": 1,
+    "source_insertions": 5,
+    "top_level_dirs": [
+      "."
+    ]
+  },
+  "notes": [],
+  "pr": {
+    "base": "chunk/scanner-hardening",
+    "head": "feat/update-makefile",
+    "issue_refs": [],
+    "number": 58,
+    "target_kind": "implementation",
+    "title": "Update the Makefile"
+  },
+  "schema_version": 1,
+  "signals": [
+    {
+      "evidence": [],
+      "id": "migration_sql_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "migration_history_rewritten",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "schema_changed_without_migration",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "dependency_manifest_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "install_execution_allowed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "test_files_deleted",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "tests_skipped_added",
+      "present": false
+    },
+    {
+      "evidence": [
+        {
+          "detail": "- .PHONY: all build test",
+          "file": "Makefile",
+          "line": 1
+        }
+      ],
+      "id": "safeguard_config_changed",
+      "present": true
+    },
+    {
+      "evidence": [],
+      "id": "suppressions_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "workflow_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "stack_choice_changed",
+      "present": false
+    }
+  ],
+  "stack": {
+    "framework": null,
+    "linter": null,
+    "orm": null,
+    "package_manager": null
+  }
+}

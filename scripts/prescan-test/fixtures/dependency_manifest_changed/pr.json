@@ -1,0 +1,9 @@
+{
+  "number": 51,
+  "title": "Add a dependency",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/add-dep",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Adds a new dependency to go.mod.",
+  "statusCheckRollup": []
+}

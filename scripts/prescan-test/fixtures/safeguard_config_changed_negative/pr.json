@@ -1,0 +1,9 @@
+{
+  "number": 59,
+  "title": "Update config",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/update-config",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Edits config.yaml (not a safeguard file).",
+  "statusCheckRollup": []
+}

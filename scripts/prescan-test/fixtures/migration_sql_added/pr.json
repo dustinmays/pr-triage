@@ -1,0 +1,9 @@
+{
+  "number": 43,
+  "title": "Add a new migration",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/add-migration",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Adds a new migration file.",
+  "statusCheckRollup": []
+}

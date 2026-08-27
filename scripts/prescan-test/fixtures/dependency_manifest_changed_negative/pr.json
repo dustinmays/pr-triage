@@ -1,0 +1,9 @@
+{
+  "number": 52,
+  "title": "Fix a typo in the main package",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/fix-typo",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Just edits a Go source file, no manifest changes.",
+  "statusCheckRollup": []
+}

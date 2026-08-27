@@ -1,0 +1,9 @@
+{
+  "number": 55,
+  "title": "Remove a non-test file",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/drop-widget",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Deletes the widget source file, not a test.",
+  "statusCheckRollup": []
+}

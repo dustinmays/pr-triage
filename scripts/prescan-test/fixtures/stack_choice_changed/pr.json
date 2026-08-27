@@ -1,0 +1,9 @@
+{
+  "number": 64,
+  "title": "Bump Go version",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/bump-go-version",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Bumps Go toolchain from 1.24 to 1.25.",
+  "statusCheckRollup": []
+}

@@ -1,0 +1,9 @@
+{
+  "number": 61,
+  "title": "Add a lint comment",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/lint-comment",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Adds a comment about linting (not a nolint directive).",
+  "statusCheckRollup": []
+}

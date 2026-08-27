@@ -1,0 +1,9 @@
+{
+  "number": 60,
+  "title": "Add nolint suppression",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/nolint",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Adds a //nolint comment to silence a linter warning.",
+  "statusCheckRollup": []
+}
