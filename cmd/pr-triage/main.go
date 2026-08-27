@@ -11,6 +11,7 @@ import (
 	// blank import the registry is empty and every run fails with
 	// "unknown runtime". Add future adapters (codex, opencode) here too.
 	_ "github.com/dustinmays/pr-triage/internal/runtime/claudecode"
+	_ "github.com/dustinmays/pr-triage/internal/runtime/opencode"
 )
 
 func main() {
