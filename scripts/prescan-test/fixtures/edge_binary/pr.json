@@ -1,0 +1,9 @@
+{
+  "number": 92,
+  "title": "Add binary logo",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/add-logo",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Adds logo asset.",
+  "statusCheckRollup": []
+}

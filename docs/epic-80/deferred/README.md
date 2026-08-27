@@ -44,6 +44,7 @@ severity (low|medium|high|n/a), area, found_by, found_in, status
 | [status-shows-internal-pr-id](./status-shows-internal-pr-id.md) | bug | low | cli, observability | `status` prints internal `runs.pr_id` instead of the GitHub PR number |
 | [scanner-scans-its-own-test-fixtures](./scanner-scans-its-own-test-fixtures.md) | bug | medium | scanner, poller | scanner trips signals on fixture files (paths matched anywhere via `(^\|/)`; also scans `apply.sh`/`golden.json`) — confirmed escalating #106 |
 | [schema-sql-matches-migration-regex](./schema-sql-matches-migration-regex.md) | question | low | scanner | editing `internal/db/schema.sql` also trips `migration_history_rewritten` (broad `MIGRATION_RE`) |
+| [largest-file-empty-path-on-zero-line-diffs](./largest-file-empty-path.md) | question | low | scanner | `diff.largest_file` is `{path:"",changed:0}` for pure-rename / pure-binary diffs (awk `max_changed` init) |
 
 ## Resolved
 
