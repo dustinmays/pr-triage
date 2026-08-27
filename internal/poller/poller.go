@@ -331,6 +331,14 @@ func (p *Poller) ProcessPR(ctx context.Context, repo db.Repo, pr *gh.PullRequest
 	case StateReportReady, StateAgentRunning, StateDone:
 		// Already processed for this SHA -> no-op.
 		return nil
+	case StateEscalated:
+		// Escalated is human-owned terminal state (ADR 0006: local state is the
+		// source of truth). Once a PR is escalated at a head SHA, only a human
+		// action (the override) or a new push (handled by Case 2's SHA change)
+		// may leave it. Re-polling must not re-run CI evaluation here, or the PR
+		// would re-escalate or be overwritten with a stale ci_failed on the next
+		// sweep. No-op until the head SHA changes.
+		return nil
 	case StateCIFailed:
 		// Stale failed state watching head SHA -> no-op until new push.
 		return nil
