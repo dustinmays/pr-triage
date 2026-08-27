@@ -6,7 +6,8 @@ severity: low
 area: config, cli
 found_by: claude
 found_in: chunk/scanner-hardening dogfood setup (2026-08-23)
-status: open
+status: fixed
+fixed_in: "#114 — pr-triage config show prints the effective merged config (signal_tiers + routing) read-only"
 related:
   - ../../../internal/cli/init.go        # writes .pr-triage/config.yaml
   - ../../../internal/config/config.go    # Load now merges over DefaultConfig
