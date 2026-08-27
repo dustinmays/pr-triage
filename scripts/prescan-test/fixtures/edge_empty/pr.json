@@ -1,0 +1,9 @@
+{
+  "number": 93,
+  "title": "Empty change",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/empty-change",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Empty commit with no diff.",
+  "statusCheckRollup": []
+}

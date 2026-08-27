@@ -1,0 +1,9 @@
+{
+  "number": 95,
+  "title": "Add vendor submodule",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/add-submodule",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Adds a git submodule.",
+  "statusCheckRollup": []
+}
