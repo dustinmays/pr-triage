@@ -283,7 +283,6 @@ show_base() { git show "$BASE_SHA:$1" 2>/dev/null || true; }
 
 # Inspect Go stack
 GO_MOD_PATH="$(find_file '(^|/)go\.mod$')"
-GOLANGCI_PATH="$(find_file '(^|/)\.golangci\.ya?ml$')"
 
 FRAMEWORK=null
 ORM=null
@@ -320,6 +319,10 @@ detect_go_stack() {
 
 IFS=$'\t' read -r FRAMEWORK ORM PACKAGE_MANAGER LINTER HEAD_GO_VER HEAD_MOD_NAME \
   <<<"$(detect_go_stack "$TMP/tree.txt" show_head)"
+# BASE_ORM and BASE_PACKAGE_MANAGER are positional placeholders needed to
+# consume the tab-separated columns in order; only the other base fields are
+# compared against HEAD below (orm/package_manager aren't diffed for the base).
+# shellcheck disable=SC2034
 IFS=$'\t' read -r BASE_FRAMEWORK BASE_ORM BASE_PACKAGE_MANAGER BASE_LINTER BASE_GO_VER BASE_MOD_NAME \
   <<<"$(detect_go_stack "$TMP/tree_base.txt" show_base)"
 
