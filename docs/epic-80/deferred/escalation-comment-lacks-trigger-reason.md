@@ -6,7 +6,7 @@ severity: medium
 area: orchestrator, escalate, observability
 found_by: dustinmays
 found_in: chunk/scanner-hardening live dogfood — PRs #94/#95 escalated (2026-08-25)
-status: open
+status: resolved (#99 / D.2, 2026-08-26)
 related:
   - ../../../internal/orchestrator/orchestrator.go   # builds Reason as fmt.Sprintf("risk tier %q triggered escalation", tier)
   - ../../../internal/escalate/escalate.go            # posts the comment from req.Reason
@@ -52,3 +52,16 @@ each signal carries `evidence[{file,line,detail}]`. It's just thrown away.
 Cheap, high-value observability win. Pairs with
 [per-chunk-triage-config](./per-chunk-triage-config.md) (seeing *why* is the
 first step to deciding a signal should be routine for this chunk).
+
+## Resolution (D.2 / #99)
+
+`config.ClassifyWithReason` now returns a `Classification` carrying the tier plus
+the present signal IDs that matched the escalate rule (all of them, in rule
+order) or a `ByTargetKind`/`TargetKind` marker. The orchestrator's new
+`escalationReason` helper renders that into the `escalate.Request.Reason` — which
+lands in both the PR comment and `runs.stop_reason` — naming each triggering
+signal and listing its `file:line — detail` evidence. Per ADR 0007 it emits only
+the deterministic pre-scan facts (no AI phrasing), so the human's read isn't
+skewed. `chunk_completion` PRs get a distinct "target_kind requires human review"
+reason. Covered by `TestClassifyWithReason` and the augmented high-risk /
+chunk-completion orchestrator escalation tests.

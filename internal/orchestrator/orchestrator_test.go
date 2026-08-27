@@ -474,6 +474,21 @@ func TestOrchestrator_HandleReportReady_HighRiskEscalates(t *testing.T) {
 	if pr.State != "escalated" {
 		t.Errorf("pr.State = %q, want 'escalated'", pr.State)
 	}
+
+	// D.2: the escalation must name the specific signal(s) that tripped and cite
+	// their evidence, not just the tier.
+	if len(ghMock.createdPosts) != 1 {
+		t.Fatalf("expected 1 escalation comment, got %d", len(ghMock.createdPosts))
+	}
+	body := ghMock.createdPosts[0]
+	for _, want := range []string{"schema_changed_without_migration", "test_files_deleted", "src/schema.ts:42"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("escalation comment missing %q; got:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, `risk tier "escalate" triggered escalation`) {
+		t.Errorf("escalation comment still uses the generic tier-only reason:\n%s", body)
+	}
 }
 
 func TestOrchestrator_HandleReportReady_ChunkCompletionEscalates(t *testing.T) {
@@ -527,6 +542,18 @@ func TestOrchestrator_HandleReportReady_ChunkCompletionEscalates(t *testing.T) {
 	}
 	if pr.State != "escalated" {
 		t.Errorf("pr.State = %q, want 'escalated'", pr.State)
+	}
+
+	// D.2: a chunk-completion escalation should explain it was the target_kind,
+	// not leave the human guessing.
+	if len(ghMock.createdPosts) != 1 {
+		t.Fatalf("expected 1 escalation comment, got %d", len(ghMock.createdPosts))
+	}
+	body := ghMock.createdPosts[0]
+	for _, want := range []string{"target_kind", "chunk_completion"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("escalation comment missing %q; got:\n%s", want, body)
+		}
 	}
 }
 

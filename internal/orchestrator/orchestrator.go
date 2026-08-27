@@ -263,6 +263,95 @@ func (o *Orchestrator) Recover(ctx context.Context) error {
 	return nil
 }
 
+// escalationReason renders a human-facing explanation of why a PR was escalated,
+// naming the specific signal(s) that tripped the tier and citing their evidence.
+// Per ADR 0007 it reports the deterministic pre-scan facts only — signal IDs and
+// their file:line evidence — with no AI phrasing or editorializing, so the human's
+// read is not skewed. Falls back to naming the tier when no per-signal detail
+// exists (default/routing-forced escalations).
+func escalationReason(rep *report.Report, class config.Classification) string {
+	switch {
+	case class.ByTargetKind:
+		return fmt.Sprintf("PR target_kind %q requires human review (classified as %q tier).",
+			class.TargetKind, class.Tier)
+
+	case len(class.MatchedSignals) > 0:
+		var b strings.Builder
+		fmt.Fprintf(&b, "Pre-scan signal(s) %s tripped the %q tier.",
+			strings.Join(quoteAll(class.MatchedSignals), ", "), class.Tier)
+
+		evidence := evidenceBySignal(rep, class.MatchedSignals)
+		for _, sigID := range class.MatchedSignals {
+			fmt.Fprintf(&b, "\n\n**%s**", sigID)
+			lines := evidence[sigID]
+			if len(lines) == 0 {
+				b.WriteString("\n- (no evidence detail in report)")
+				continue
+			}
+			for _, ln := range lines {
+				fmt.Fprintf(&b, "\n- %s", ln)
+			}
+		}
+		return b.String()
+
+	default:
+		return fmt.Sprintf("risk tier %q triggered escalation", class.Tier)
+	}
+}
+
+// evidenceBySignal collects the formatted evidence lines for the given signal IDs
+// from the report, keyed by signal ID. Each line is "file:line — detail" (line and
+// file omitted when absent).
+func evidenceBySignal(rep *report.Report, ids []string) map[string][]string {
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	out := make(map[string][]string, len(ids))
+	if rep == nil {
+		return out
+	}
+	for _, sig := range rep.Signals {
+		if !sig.Present || !want[sig.ID] {
+			continue
+		}
+		for _, ev := range sig.Evidence {
+			out[sig.ID] = append(out[sig.ID], formatEvidence(ev))
+		}
+	}
+	return out
+}
+
+// formatEvidence renders a single Evidence as "file:line — detail", omitting
+// parts that are absent.
+func formatEvidence(ev report.Evidence) string {
+	loc := ev.File
+	if ev.Line != nil {
+		if loc != "" {
+			loc = fmt.Sprintf("%s:%d", loc, *ev.Line)
+		} else {
+			loc = fmt.Sprintf("line %d", *ev.Line)
+		}
+	}
+	switch {
+	case loc != "" && ev.Detail != "":
+		return fmt.Sprintf("%s — %s", loc, ev.Detail)
+	case loc != "":
+		return loc
+	default:
+		return ev.Detail
+	}
+}
+
+// quoteAll wraps each string in double quotes for readable inline lists.
+func quoteAll(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = fmt.Sprintf("%q", s)
+	}
+	return out
+}
+
 // HandleReportReady processes a single report_ready event end-to-end.
 func (o *Orchestrator) HandleReportReady(ctx context.Context, event poller.ReportReadyEvent) error {
 	// 1. Fetch config for repo
@@ -292,14 +381,15 @@ func (o *Orchestrator) HandleReportReady(ctx context.Context, event poller.Repor
 	}
 
 	// 3. Classify risk tier
-	tier := cfg.Classify(rep)
+	class := cfg.ClassifyWithReason(rep)
+	tier := class.Tier
 
 	if tier == "human" || tier == "escalate" {
 		return o.escalator.Escalate(ctx, escalate.Request{
 			Repo:       event.Repo,
 			PRNumber:   event.PRNumber,
 			HeadSHA:    event.HeadSHA,
-			Reason:     fmt.Sprintf("risk tier %q triggered escalation", tier),
+			Reason:     escalationReason(rep, class),
 			CIRunID:    &event.CheckRunID,
 			GitHubUser: cfg.GitHubUser,
 		})
