@@ -1,0 +1,9 @@
+{
+  "number": 46,
+  "title": "Add a new migration without rewriting history",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/new-migration-only",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Adds a new migration file (no existing migration modified).",
+  "statusCheckRollup": []
+}

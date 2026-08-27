@@ -140,6 +140,7 @@ func TestPoller_NewPR_CIPasses(t *testing.T) {
 	client.checkRuns["sha-pass"] = []*gh.CheckRun{
 		{
 			ID:         gh.Ptr(int64(999)),
+			Name:       gh.Ptr("pr-prescan-report"),
 			Status:     gh.Ptr("completed"),
 			Conclusion: gh.Ptr("success"),
 		},
@@ -177,6 +178,59 @@ func TestPoller_NewPR_CIPasses(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected ReportReadyEvent, got none")
+	}
+}
+
+func TestPoller_GatingGreenNoReportCheck_EscalatesViaReportMissing(t *testing.T) {
+	store := newMockStore()
+	store.repos = append(store.repos, db.Repo{
+		ID:      1,
+		Owner:   "owner",
+		Name:    "repo",
+		BaseRef: "main",
+	})
+
+	client := newMockGitHubClient()
+	client.prs["owner/repo"] = []*gh.PullRequest{
+		{
+			Number: gh.Ptr(7),
+			Head:   &gh.PullRequestBranch{SHA: gh.Ptr("sha-noreport")},
+			Base:   &gh.PullRequestBranch{Ref: gh.Ptr("main")},
+		},
+	}
+	// All gating checks pass, but none is the pr-prescan-report check.
+	client.checkRuns["sha-noreport"] = []*gh.CheckRun{
+		{ID: gh.Ptr(int64(11)), Name: gh.Ptr("lint"), Status: gh.Ptr("completed"), Conclusion: gh.Ptr("success")},
+		{ID: gh.Ptr(int64(12)), Name: gh.Ptr("test"), Status: gh.Ptr("completed"), Conclusion: gh.Ptr("success")},
+	}
+
+	p := poller.New(store, client,
+		poller.WithInitialBackoff(10*time.Millisecond),
+		poller.WithTimeoutCeiling(50*time.Millisecond),
+		poller.WithSleepFunc(func(ctx context.Context, d time.Duration) error { return nil }),
+	)
+
+	ctx := context.Background()
+	_ = p.PollOnce(ctx)
+
+	prState, err := store.GetPRState(1, 7)
+	if err != nil {
+		t.Fatalf("GetPRState failed: %v", err)
+	}
+	if prState.State != poller.StateReportReady {
+		t.Errorf("state = %q, want report_ready (report-missing escalation path)", prState.State)
+	}
+
+	select {
+	case evt := <-p.ReportReadyEvents():
+		if !evt.ReportMissing {
+			t.Errorf("event ReportMissing = false, want true")
+		}
+		if evt.CheckRunID != 0 {
+			t.Errorf("event CheckRunID = %d, want 0 (no report check)", evt.CheckRunID)
+		}
+	default:
+		t.Fatalf("expected a ReportReadyEvent with ReportMissing=true, got none")
 	}
 }
 
@@ -296,6 +350,7 @@ func TestPoller_NewPush_ResetsToCIRunning(t *testing.T) {
 	client.checkRuns["sha-new"] = []*gh.CheckRun{
 		{
 			ID:         gh.Ptr(int64(200)),
+			Name:       gh.Ptr("pr-prescan-report"),
 			Status:     gh.Ptr("completed"),
 			Conclusion: gh.Ptr("success"),
 		},
@@ -336,6 +391,116 @@ func TestPoller_NewPush_ResetsToCIRunning(t *testing.T) {
 	}
 }
 
+func TestPoller_Escalated_SameSHA_NoOp(t *testing.T) {
+	store := newMockStore()
+	store.repos = append(store.repos, db.Repo{
+		ID:      1,
+		Owner:   "owner",
+		Name:    "repo",
+		BaseRef: "main",
+	})
+	runID := int64(777)
+	_, _ = store.UpsertPRState(1, 55, "sha-esc", &runID, poller.StateEscalated)
+
+	client := newMockGitHubClient()
+	client.prs["owner/repo"] = []*gh.PullRequest{
+		{
+			Number: gh.Ptr(55),
+			Head:   &gh.PullRequestBranch{SHA: gh.Ptr("sha-esc")},
+		},
+	}
+	// A failing check run is present for the escalated head SHA. If the poller
+	// were to re-evaluate CI here, it would overwrite the human-owned escalated
+	// state with ci_failed. It must not: escalated is terminal until a new push.
+	client.checkRuns["sha-esc"] = []*gh.CheckRun{
+		{
+			ID:         gh.Ptr(int64(1001)),
+			Status:     gh.Ptr("completed"),
+			Conclusion: gh.Ptr("failure"),
+		},
+	}
+
+	p := poller.New(store, client,
+		poller.WithSleepFunc(func(ctx context.Context, d time.Duration) error { return nil }),
+	)
+
+	ctx := context.Background()
+	if err := p.PollOnce(ctx); err != nil {
+		t.Fatalf("PollOnce failed: %v", err)
+	}
+
+	if client.checkRunCalls != 0 {
+		t.Errorf("expected 0 check run calls for escalated PR, got %d", client.checkRunCalls)
+	}
+
+	prState, err := store.GetPRState(1, 55)
+	if err != nil {
+		t.Fatalf("GetPRState failed: %v", err)
+	}
+	if prState.State != poller.StateEscalated {
+		t.Errorf("prState.State = %q, want %q (escalated must survive re-poll)", prState.State, poller.StateEscalated)
+	}
+
+	select {
+	case evt := <-p.ReportReadyEvents():
+		t.Fatalf("expected no ReportReadyEvent for escalated PR, got %+v", evt)
+	default:
+		// OK
+	}
+}
+
+func TestPoller_Escalated_NewPush_ResetsToCIRunning(t *testing.T) {
+	store := newMockStore()
+	store.repos = append(store.repos, db.Repo{
+		ID:      1,
+		Owner:   "owner",
+		Name:    "repo",
+		BaseRef: "main",
+	})
+	oldRunID := int64(300)
+	_, _ = store.UpsertPRState(1, 56, "sha-old-esc", &oldRunID, poller.StateEscalated)
+
+	client := newMockGitHubClient()
+	client.prs["owner/repo"] = []*gh.PullRequest{
+		{
+			Number: gh.Ptr(56),
+			Head:   &gh.PullRequestBranch{SHA: gh.Ptr("sha-new-esc")},
+		},
+	}
+	client.checkRuns["sha-new-esc"] = []*gh.CheckRun{
+		{
+			ID:         gh.Ptr(int64(400)),
+			Name:       gh.Ptr("pr-prescan-report"),
+			Status:     gh.Ptr("completed"),
+			Conclusion: gh.Ptr("success"),
+		},
+	}
+
+	p := poller.New(store, client,
+		poller.WithInitialBackoff(10*time.Millisecond),
+		poller.WithTimeoutCeiling(1*time.Second),
+		poller.WithSleepFunc(func(ctx context.Context, d time.Duration) error { return nil }),
+	)
+
+	ctx := context.Background()
+	if err := p.PollOnce(ctx); err != nil {
+		t.Fatalf("PollOnce failed: %v", err)
+	}
+
+	prState, err := store.GetPRState(1, 56)
+	if err != nil {
+		t.Fatalf("GetPRState failed: %v", err)
+	}
+	// A new push must pull the PR out of the human-owned escalated state and
+	// re-enter the CI lifecycle for the new SHA.
+	if prState.State != poller.StateReportReady {
+		t.Errorf("prState.State = %q, want %q after new push", prState.State, poller.StateReportReady)
+	}
+	if prState.HeadSHA != "sha-new-esc" {
+		t.Errorf("prState.HeadSHA = %q, want sha-new-esc", prState.HeadSHA)
+	}
+}
+
 func TestPoller_CIWait_Backoff_PendingToSuccess(t *testing.T) {
 	store := newMockStore()
 	store.repos = append(store.repos, db.Repo{
@@ -368,6 +533,7 @@ func TestPoller_CIWait_Backoff_PendingToSuccess(t *testing.T) {
 		return []*gh.CheckRun{
 			{
 				ID:         gh.Ptr(int64(700)),
+				Name:       gh.Ptr("pr-prescan-report"),
 				Status:     gh.Ptr("completed"),
 				Conclusion: gh.Ptr("success"),
 			},
@@ -528,11 +694,18 @@ func TestPoller_RealDBAndHTTPClient(t *testing.T) {
 	}
 
 	checkRunsResp := map[string]any{
-		"total_count": 1,
+		"total_count": 2,
 		"check_runs": []map[string]any{
 			{
-				"id":         5555,
+				"id":         4444,
 				"name":       "ci/test",
+				"head_sha":   "sha-real-integration",
+				"status":     "completed",
+				"conclusion": "success",
+			},
+			{
+				"id":         5555,
+				"name":       "pr-prescan-report",
 				"head_sha":   "sha-real-integration",
 				"status":     "completed",
 				"conclusion": "success",

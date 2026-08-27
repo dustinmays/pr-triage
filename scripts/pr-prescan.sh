@@ -54,6 +54,37 @@ die() {
   exit 1
 }
 
+# Emit a minimal but valid schema_version:1 error document and exit 0.
+# Used for runtime failures (can't read the PR, can't fetch a ref, no merge
+# base): the scan reports facts and never fails the build, so a failure is
+# reported AS a document, not as a non-zero exit. Requires jq (already checked).
+emit_error() {
+  local msg="$1"
+  echo "pr-prescan: $msg (emitting error document)" >&2
+  local doc
+  doc="$(jq -n \
+    --argjson number "${PR_NUMBER:-0}" \
+    --arg title "${PR_TITLE:-unknown}" \
+    --arg base "${BASE_REF:-unknown}" \
+    --arg head "${HEAD_REF:-unknown}" \
+    --arg error "$msg" \
+    '{ schema_version: 1,
+       pr: { number: $number, title: $title, base: $base, head: $head },
+       ci: { status: "none", failing_checks: [] },
+       stack: {},
+       diff: {},
+       signals: [],
+       notes: [],
+       error: $error }')"
+  if [ -n "${OUT:-}" ]; then
+    printf '%s\n' "$doc" >"$OUT"
+    echo "pr-prescan: wrote $OUT" >&2
+  else
+    printf '%s\n' "$doc"
+  fi
+  exit 0
+}
+
 # ---------------------------------------------------------------- arguments ---
 
 PR_NUMBER=""
@@ -122,12 +153,12 @@ evidence_json() {
 
 if [ -z "$REPO" ]; then
   REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)" ||
-    die "could not resolve the repository; pass --repo owner/name"
+    emit_error "could not resolve the repository; pass --repo owner/name"
 fi
 
 gh pr view "$PR_NUMBER" --repo "$REPO" \
   --json number,title,baseRefName,headRefName,headRefOid,body,statusCheckRollup \
-  >"$TMP/pr.json" || die "could not read PR #$PR_NUMBER in $REPO"
+  >"$TMP/pr.json" || emit_error "could not read PR #$PR_NUMBER in $REPO"
 
 PR_TITLE="$(jq -r '.title' "$TMP/pr.json")"
 BASE_REF="$(jq -r '.baseRefName' "$TMP/pr.json")"
@@ -175,7 +206,7 @@ CHUNK_JSON=null
 if [ "$TARGET_KIND" = "chunk_completion" ]; then
   gh pr list --repo "$REPO" --base "$HEAD_REF" --state merged --limit 500 \
     --json number,title,body,labels >"$TMP/chunk_prs.json" ||
-    die "could not list pull requests merged into $HEAD_REF"
+    emit_error "could not list pull requests merged into $HEAD_REF"
 
   CHUNK_JSON="$(jq -c --arg branch "$HEAD_REF" '
     {
@@ -192,17 +223,25 @@ fi
 # -------------------------------------------------------------- fetch diff ---
 
 git fetch --quiet --no-tags "$REMOTE" "refs/pull/$PR_NUMBER/head" ||
-  die "could not fetch refs/pull/$PR_NUMBER/head from $REMOTE"
+  emit_error "could not fetch refs/pull/$PR_NUMBER/head from $REMOTE"
 HEAD_SHA="$(git rev-parse FETCH_HEAD)"
 
 git fetch --quiet --no-tags "$REMOTE" "refs/heads/$BASE_REF" ||
-  die "could not fetch base branch $BASE_REF from $REMOTE"
+  emit_error "could not fetch base branch $BASE_REF from $REMOTE"
 BASE_TIP="$(git rev-parse FETCH_HEAD)"
 
 BASE_SHA="$(git merge-base "$BASE_TIP" "$HEAD_SHA")" ||
-  die "no merge base between $BASE_REF and the PR head"
+  emit_error "no merge base between $BASE_REF and the PR head"
+
+# Paths that are scanner TEST DATA, not real repo changes: exclude them from
+# signal evaluation so a PR that merely adds fixtures/testdata does not trip
+# signals. The diff/numstat block is intentionally NOT filtered — these are
+# still real file changes and should show in the diff counts.
+readonly SIGNAL_EXCLUDE_RE='^scripts/prescan-test/fixtures/|(^|/)testdata/'
 
 git diff --name-status --find-renames "$BASE_SHA" "$HEAD_SHA" >"$TMP/status.tsv"
+awk -F'\t' -v re="$SIGNAL_EXCLUDE_RE" '
+  { p = ($3 != "" ? $3 : $2) } p !~ re' "$TMP/status.tsv" >"$TMP/status.tsv.f" && mv "$TMP/status.tsv.f" "$TMP/status.tsv"
 git diff --numstat "$BASE_SHA" "$HEAD_SHA" >"$TMP/numstat.tsv"
 git diff -U0 --no-color --find-renames "$BASE_SHA" "$HEAD_SHA" >"$TMP/diff.txt"
 
@@ -227,6 +266,10 @@ awk -F'\n' '
 grep -E '^\+' "$TMP/lines.tsv" | cut -f2- >"$TMP/added.tsv" || true
 grep -E '^-' "$TMP/lines.tsv" | cut -f2- >"$TMP/removed.tsv" || true
 touch "$TMP/added.tsv" "$TMP/removed.tsv"
+
+for tsv in added removed; do
+  awk -F'\t' -v re="$SIGNAL_EXCLUDE_RE" '$1 !~ re' "$TMP/$tsv.tsv" >"$TMP/$tsv.tsv.f" && mv "$TMP/$tsv.tsv.f" "$TMP/$tsv.tsv"
+done
 
 added_matching() {
   awk -F'\t' -v pre="$1" -v cre="$2" '$1 ~ pre && $3 ~ cre { print $1 "\t" $2 "\t" $3 }' "$TMP/added.tsv"
@@ -283,7 +326,6 @@ show_base() { git show "$BASE_SHA:$1" 2>/dev/null || true; }
 
 # Inspect Go stack
 GO_MOD_PATH="$(find_file '(^|/)go\.mod$')"
-GOLANGCI_PATH="$(find_file '(^|/)\.golangci\.ya?ml$')"
 
 FRAMEWORK=null
 ORM=null
@@ -320,6 +362,10 @@ detect_go_stack() {
 
 IFS=$'\t' read -r FRAMEWORK ORM PACKAGE_MANAGER LINTER HEAD_GO_VER HEAD_MOD_NAME \
   <<<"$(detect_go_stack "$TMP/tree.txt" show_head)"
+# BASE_ORM and BASE_PACKAGE_MANAGER are positional placeholders needed to
+# consume the tab-separated columns in order; only the other base fields are
+# compared against HEAD below (orm/package_manager aren't diffed for the base).
+# shellcheck disable=SC2034
 IFS=$'\t' read -r BASE_FRAMEWORK BASE_ORM BASE_PACKAGE_MANAGER BASE_LINTER BASE_GO_VER BASE_MOD_NAME \
   <<<"$(detect_go_stack "$TMP/tree_base.txt" show_base)"
 

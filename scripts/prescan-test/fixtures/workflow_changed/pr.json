@@ -1,0 +1,9 @@
+{
+  "number": 62,
+  "title": "Update CI workflow",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/update-ci",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Adds permissions to the CI workflow.",
+  "statusCheckRollup": []
+}

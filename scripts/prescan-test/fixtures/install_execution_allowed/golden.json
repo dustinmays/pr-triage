@@ -1,0 +1,101 @@
+{
+  "chunk": null,
+  "ci": {
+    "failing_checks": [],
+    "status": "none"
+  },
+  "diff": {
+    "deletions": 0,
+    "files_changed": 1,
+    "generated_files": 0,
+    "insertions": 1,
+    "largest_file": {
+      "changed": 1,
+      "path": "main.go"
+    },
+    "source_files": 1,
+    "source_insertions": 1,
+    "top_level_dirs": [
+      "."
+    ]
+  },
+  "notes": [],
+  "pr": {
+    "base": "chunk/scanner-hardening",
+    "head": "feat/go-generate",
+    "issue_refs": [],
+    "number": 53,
+    "target_kind": "implementation",
+    "title": "Add code generation directive"
+  },
+  "schema_version": 1,
+  "signals": [
+    {
+      "evidence": [],
+      "id": "migration_sql_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "migration_history_rewritten",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "schema_changed_without_migration",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "dependency_manifest_changed",
+      "present": false
+    },
+    {
+      "evidence": [
+        {
+          "detail": "+ //go:generate stringer -type=Level",
+          "file": "main.go",
+          "line": 3
+        }
+      ],
+      "id": "install_execution_allowed",
+      "present": true
+    },
+    {
+      "evidence": [],
+      "id": "test_files_deleted",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "tests_skipped_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "safeguard_config_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "suppressions_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "workflow_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "stack_choice_changed",
+      "present": false
+    }
+  ],
+  "stack": {
+    "framework": null,
+    "linter": null,
+    "orm": null,
+    "package_manager": null
+  }
+}

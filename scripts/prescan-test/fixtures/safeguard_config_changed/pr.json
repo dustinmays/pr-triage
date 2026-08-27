@@ -1,0 +1,9 @@
+{
+  "number": 58,
+  "title": "Update the Makefile",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/update-makefile",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Edits the Makefile to add a new target.",
+  "statusCheckRollup": []
+}

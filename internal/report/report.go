@@ -17,6 +17,12 @@ import (
 // SupportedSchemaVersion is the currently supported report schema version.
 const SupportedSchemaVersion = 1
 
+// ReportCheckName is the name of the GitHub Check Run that carries the pre-scan
+// report JSON in its output summary (published by .github/workflows/pr-prescan.yml).
+// The daemon must ingest the report from THIS check run specifically — a commit
+// has many check runs (lint, test, build, …) and only this one holds the report.
+const ReportCheckName = "pr-prescan-report"
+
 // Typed report errors.
 var (
 	ErrMissing            = errors.New("report: missing report in check run output")

@@ -1,0 +1,95 @@
+{
+  "chunk": null,
+  "ci": {
+    "failing_checks": [],
+    "status": "none"
+  },
+  "diff": {
+    "deletions": 0,
+    "files_changed": 60,
+    "generated_files": 0,
+    "insertions": 180,
+    "largest_file": {
+      "changed": 3,
+      "path": "internal/big/f1.go"
+    },
+    "source_files": 60,
+    "source_insertions": 180,
+    "top_level_dirs": [
+      "internal"
+    ]
+  },
+  "notes": [],
+  "pr": {
+    "base": "chunk/scanner-hardening",
+    "head": "feat/large-diff",
+    "issue_refs": [],
+    "number": 94,
+    "target_kind": "implementation",
+    "title": "Large change with many files"
+  },
+  "schema_version": 1,
+  "signals": [
+    {
+      "evidence": [],
+      "id": "migration_sql_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "migration_history_rewritten",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "schema_changed_without_migration",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "dependency_manifest_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "install_execution_allowed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "test_files_deleted",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "tests_skipped_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "safeguard_config_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "suppressions_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "workflow_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "stack_choice_changed",
+      "present": false
+    }
+  ],
+  "stack": {
+    "framework": null,
+    "linter": null,
+    "orm": null,
+    "package_manager": null
+  }
+}

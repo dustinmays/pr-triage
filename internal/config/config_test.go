@@ -37,6 +37,48 @@ func TestConfigLoadAndSave(t *testing.T) {
 	}
 }
 
+// TestLoadMergesDefaults guards the fix for the dogfood-surfaced bug where a
+// partial config (as written by `init`, lacking signal_tiers/routing/worktree_ttl)
+// loaded with empty Routing, causing every PR to hard-fail to escalate via
+// ErrUnmappedTier. Load must layer the file over DefaultConfig so absent sections
+// keep their defaults.
+func TestLoadMergesDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+
+	// Minimal config with no signal_tiers, routing, or worktree_ttl — exactly
+	// what `init --non-interactive` writes today.
+	partial := []byte("base_ref: chunk/**\npoll_interval: 5m\ntimeout: 10m\ngithub_user: dustinmays\nruntime: claude-code\nmodel: claude-haiku-4-5\n")
+	if err := os.WriteFile(cfgPath, partial, 0644); err != nil {
+		t.Fatalf("write partial config: %v", err)
+	}
+
+	loaded, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	// File values win.
+	if loaded.BaseRef != "chunk/**" || loaded.GitHubUser != "dustinmays" {
+		t.Errorf("file values not honored: %+v", loaded)
+	}
+	// Absent sections inherit defaults.
+	if loaded.WorktreeTTL != "72h" {
+		t.Errorf("WorktreeTTL = %q, want default %q", loaded.WorktreeTTL, "72h")
+	}
+	if loaded.SignalTiers.DefaultTier != "routine" || len(loaded.SignalTiers.Rules) == 0 {
+		t.Errorf("SignalTiers not defaulted: %+v", loaded.SignalTiers)
+	}
+	// The routine tier must route to a real agent, not ErrUnmappedTier.
+	r, err := loaded.Route("routine")
+	if err != nil {
+		t.Fatalf("Route(routine) after partial load: %v", err)
+	}
+	if r.Runtime != "claude-code" || r.AgentDef != "review-agent" {
+		t.Errorf("routine routing not defaulted: %+v", r)
+	}
+}
+
 func TestClassifyAndRoute_Fixtures(t *testing.T) {
 	cfg := DefaultConfig()
 
@@ -59,7 +101,7 @@ func TestClassifyAndRoute_Fixtures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cfg.Route(%q) failed: %v", tier, err)
 	}
-	if routing.Runtime != "claude-code" || routing.Model != "claude-3-5-haiku" || routing.AgentDef != "review-agent" {
+	if routing.Runtime != "claude-code" || routing.Model != "claude-haiku-4-5" || routing.AgentDef != "review-agent" {
 		t.Errorf("unexpected routing for routine tier: %+v", routing)
 	}
 
@@ -157,6 +199,58 @@ func TestClassifyAndRoute_Fixtures(t *testing.T) {
 	if !errors.Is(err, ErrUnmappedTier) {
 		t.Errorf("expected ErrUnmappedTier for unknown tier, got %v", err)
 	}
+}
+
+func TestClassifyWithReason(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// Multiple present signals in the escalate rule are all reported, in rule order.
+	rep := &report.Report{
+		PR: report.PRInfo{Number: 1, TargetKind: "implementation"},
+		Signals: []report.Signal{
+			{ID: "workflow_changed", Present: true, Evidence: []report.Evidence{{File: ".github/workflows/ci.yml", Detail: "M ci.yml"}}},
+			{ID: "safeguard_config_changed", Present: true},
+			{ID: "migration_sql_added", Present: false},
+		},
+	}
+	got := cfg.ClassifyWithReason(rep)
+	if got.Tier != "escalate" {
+		t.Errorf("Tier = %q, want escalate", got.Tier)
+	}
+	if len(got.MatchedSignals) < 2 {
+		t.Errorf("MatchedSignals = %v, want both present escalate signals", got.MatchedSignals)
+	}
+	for _, want := range []string{"workflow_changed", "safeguard_config_changed"} {
+		if !containsStr(got.MatchedSignals, want) {
+			t.Errorf("MatchedSignals %v missing %q", got.MatchedSignals, want)
+		}
+	}
+	if containsStr(got.MatchedSignals, "migration_sql_added") {
+		t.Errorf("MatchedSignals %v includes a non-present signal", got.MatchedSignals)
+	}
+
+	// target_kind drives classification and is reported distinctly.
+	chunk := &report.Report{PR: report.PRInfo{TargetKind: "chunk_completion"}}
+	gotChunk := cfg.ClassifyWithReason(chunk)
+	if gotChunk.Tier != "human" || !gotChunk.ByTargetKind || gotChunk.TargetKind != "chunk_completion" {
+		t.Errorf("chunk classification = %+v, want human/by-target-kind", gotChunk)
+	}
+
+	// No present signals -> default tier, no matched signals.
+	none := &report.Report{PR: report.PRInfo{TargetKind: "implementation"}, Signals: []report.Signal{{ID: "workflow_changed", Present: false}}}
+	gotNone := cfg.ClassifyWithReason(none)
+	if len(gotNone.MatchedSignals) != 0 || gotNone.ByTargetKind {
+		t.Errorf("no-signal classification = %+v, want default with no reason detail", gotNone)
+	}
+}
+
+func containsStr(ss []string, want string) bool {
+	for _, s := range ss {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSignalTiers_CustomYAMLReload(t *testing.T) {

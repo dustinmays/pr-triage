@@ -88,7 +88,7 @@ var statusCmd = &cobra.Command{
 				}
 
 				fmt.Fprintf(out, "  #%-4d PR #%-4d %s%-12s\033[0m %-8s %-18s cost=$%.4f (%s)",
-					r.ID, r.PRID, statusColor, r.Status, r.RiskTier, r.Model, r.CostUSD, r.CostBasis)
+					r.ID, r.PRNumber, statusColor, r.Status, r.RiskTier, r.Model, r.CostUSD, r.CostBasis)
 
 				if flagStatusVerbose {
 					if r.StopReason != "" {

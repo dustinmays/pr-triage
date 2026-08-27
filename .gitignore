@@ -1,0 +1,8 @@
+# Build output
+/bin/
+
+# Local daemon state written by `init`/`run` (config, SQLite DB, logs)
+/.pr-triage/
+
+# OS / editor cruft
+.DS_Store

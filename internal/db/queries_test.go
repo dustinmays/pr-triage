@@ -232,6 +232,109 @@ func TestGetPRState(t *testing.T) {
 	}
 }
 
+func TestListRuns_PopulatesGitHubPRNumber(t *testing.T) {
+	store := setupTestDB(t)
+
+	repo, err := store.UpsertRepo(&Repo{
+		Owner:        "dustinmays",
+		Name:         "pr-triage",
+		BaseRef:      "main",
+		PollInterval: "5m",
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepo: %v", err)
+	}
+
+	// Use a GitHub PR number that is deliberately different from the internal
+	// pr_id (autoincrement starting at 1) so a regression to pr_id is caught.
+	const githubNumber = 94
+	pr, err := store.UpsertPRState(repo.ID, githubNumber, "sha-1", nil, "escalated")
+	if err != nil {
+		t.Fatalf("UpsertPRState: %v", err)
+	}
+	if pr.ID == githubNumber {
+		t.Fatalf("test precondition: internal pr_id (%d) must differ from GitHub number (%d)", pr.ID, githubNumber)
+	}
+
+	if _, err := store.RecordRun(&Run{
+		PRID:      pr.ID,
+		HeadSHA:   "sha-1",
+		RiskTier:  "escalated",
+		Runtime:   "none",
+		Model:     "none",
+		CostBasis: "unavailable",
+		Status:    "escalated",
+	}); err != nil {
+		t.Fatalf("RecordRun: %v", err)
+	}
+
+	runs, err := store.ListRuns(10)
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+	if runs[0].PRNumber != githubNumber {
+		t.Errorf("run.PRNumber = %d, want the GitHub PR number %d (not internal pr_id %d)",
+			runs[0].PRNumber, githubNumber, runs[0].PRID)
+	}
+}
+
+func TestOverrides_RecordGetConsumeAndSHAPinning(t *testing.T) {
+	store := setupTestDB(t)
+
+	repo, err := store.UpsertRepo(&Repo{
+		Owner: "dustinmays", Name: "pr-triage", BaseRef: "main", PollInterval: "5m",
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepo: %v", err)
+	}
+
+	// No active override initially.
+	if _, err := store.GetActiveOverride(repo.ID, 42, "sha-a"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+
+	ov, err := store.RecordOverride(&Override{
+		RepoID: repo.ID, PRNumber: 42, HeadSHA: "sha-a",
+		WaivedSignals: "workflow_changed,safeguard_config_changed", Reason: "infra chunk",
+	})
+	if err != nil {
+		t.Fatalf("RecordOverride: %v", err)
+	}
+
+	got, err := store.GetActiveOverride(repo.ID, 42, "sha-a")
+	if err != nil {
+		t.Fatalf("GetActiveOverride: %v", err)
+	}
+	if got.ID != ov.ID || len(got.WaivedSignalList()) != 2 || got.WaivesAll() {
+		t.Errorf("unexpected override: %+v (waived=%v)", got, got.WaivedSignalList())
+	}
+
+	// SHA pinning: a different head SHA has no active override.
+	if _, err := store.GetActiveOverride(repo.ID, 42, "sha-b"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected no override for a new head SHA, got %v", err)
+	}
+
+	// Consuming makes it inactive (one-shot).
+	if err := store.MarkOverrideConsumed(ov.ID); err != nil {
+		t.Fatalf("MarkOverrideConsumed: %v", err)
+	}
+	if _, err := store.GetActiveOverride(repo.ID, 42, "sha-a"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected consumed override to be inactive, got %v", err)
+	}
+
+	// An empty waiver list means "waive all".
+	all, err := store.RecordOverride(&Override{RepoID: repo.ID, PRNumber: 43, HeadSHA: "sha-c"})
+	if err != nil {
+		t.Fatalf("RecordOverride(all): %v", err)
+	}
+	if !all.WaivesAll() {
+		t.Errorf("expected WaivesAll for empty waiver, got %v", all.WaivedSignalList())
+	}
+}
+
 func TestRecordRun_AndCostHonesty(t *testing.T) {
 	store := setupTestDB(t)
 

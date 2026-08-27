@@ -43,6 +43,7 @@ func TestBuildArgs(t *testing.T) {
 			expected: []string{
 				"--agent", "code-reviewer",
 				"-p", "--output-format", "stream-json", "--verbose",
+				"--permission-mode", "bypassPermissions",
 				"--model", "claude-3-7-sonnet",
 				"--max-turns", "10",
 				"--", "review this PR",
@@ -55,6 +56,7 @@ func TestBuildArgs(t *testing.T) {
 			},
 			expected: []string{
 				"-p", "--output-format", "stream-json", "--verbose",
+				"--permission-mode", "bypassPermissions",
 				"--", "fix bug",
 			},
 		},

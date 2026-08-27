@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	gh "github.com/google/go-github/v72/github"
 
@@ -44,6 +46,8 @@ type Store interface {
 	RecordRun(run *db.Run) (*db.Run, error)
 	UpdateRun(run *db.Run) error
 	RunsInState(state string) ([]db.Run, error)
+	GetActiveOverride(repoID int64, prNumber int, headSHA string) (*db.Override, error)
+	MarkOverrideConsumed(id int64) error
 }
 
 // ConfigLoader loads repository or global configuration.
@@ -261,6 +265,210 @@ func (o *Orchestrator) Recover(ctx context.Context) error {
 	return nil
 }
 
+// escalationReason renders a human-facing explanation of why a PR was escalated,
+// naming the specific signal(s) that tripped the tier and citing their evidence.
+// Per ADR 0007 it reports the deterministic pre-scan facts only — signal IDs and
+// their file:line evidence — with no AI phrasing or editorializing, so the human's
+// read is not skewed. Falls back to naming the tier when no per-signal detail
+// exists (default/routing-forced escalations).
+func escalationReason(rep *report.Report, class config.Classification) string {
+	switch {
+	case class.ByTargetKind:
+		return fmt.Sprintf("PR target_kind %q requires human review (classified as %q tier).",
+			class.TargetKind, class.Tier)
+
+	case len(class.MatchedSignals) > 0:
+		var b strings.Builder
+		fmt.Fprintf(&b, "Pre-scan signal(s) %s tripped the %q tier.",
+			strings.Join(quoteAll(class.MatchedSignals), ", "), class.Tier)
+
+		evidence := evidenceBySignal(rep, class.MatchedSignals)
+		for _, sigID := range class.MatchedSignals {
+			fmt.Fprintf(&b, "\n\n**%s**", sigID)
+			lines := evidence[sigID]
+			if len(lines) == 0 {
+				b.WriteString("\n- (no evidence detail in report)")
+				continue
+			}
+			for _, ln := range lines {
+				fmt.Fprintf(&b, "\n- %s", ln)
+			}
+		}
+		return b.String()
+
+	default:
+		return fmt.Sprintf("risk tier %q triggered escalation", class.Tier)
+	}
+}
+
+// evidenceBySignal collects the formatted evidence lines for the given signal IDs
+// from the report, keyed by signal ID. Each line is "file:line — detail" (line and
+// file omitted when absent).
+func evidenceBySignal(rep *report.Report, ids []string) map[string][]string {
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	out := make(map[string][]string, len(ids))
+	if rep == nil {
+		return out
+	}
+	for _, sig := range rep.Signals {
+		if !sig.Present || !want[sig.ID] {
+			continue
+		}
+		for _, ev := range sig.Evidence {
+			out[sig.ID] = append(out[sig.ID], formatEvidence(ev))
+		}
+	}
+	return out
+}
+
+// formatEvidence renders a single Evidence as "file:line — detail", omitting
+// parts that are absent.
+func formatEvidence(ev report.Evidence) string {
+	loc := ev.File
+	if ev.Line != nil {
+		if loc != "" {
+			loc = fmt.Sprintf("%s:%d", loc, *ev.Line)
+		} else {
+			loc = fmt.Sprintf("line %d", *ev.Line)
+		}
+	}
+	switch {
+	case loc != "" && ev.Detail != "":
+		return fmt.Sprintf("%s — %s", loc, ev.Detail)
+	case loc != "":
+		return loc
+	default:
+		return ev.Detail
+	}
+}
+
+// quoteAll wraps each string in double quotes for readable inline lists.
+func quoteAll(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = fmt.Sprintf("%q", s)
+	}
+	return out
+}
+
+// buildReviewPrompt constructs the per-PR instruction handed to the review
+// agent. It names the PR and injects the deterministic pre-scan's present
+// signals with their file:line evidence, so the agent starts from facts
+// instead of guessing which PR it is on (issue #116). The agent def
+// (--agent) still supplies the review methodology; this supplies the context.
+func buildReviewPrompt(event poller.ReportReadyEvent, rep *report.Report) string {
+	var b strings.Builder
+
+	title := ""
+	base := ""
+	if rep != nil {
+		title = rep.PR.Title
+		base = rep.PR.Base
+	}
+	shortSHA := event.HeadSHA
+	if len(shortSHA) > 7 {
+		shortSHA = shortSHA[:7]
+	}
+
+	fmt.Fprintf(&b, "You are reviewing PR #%d (%q) in %s/%s, checked out in this worktree (detached at the PR head %s).\n\n",
+		event.PRNumber, title, event.Repo.Owner, event.Repo.Name, shortSHA)
+
+	// Collect the IDs of every present signal, in report order, then reuse
+	// evidenceBySignal to render each one's "file:line — detail" lines.
+	var presentIDs []string
+	if rep != nil {
+		for _, sig := range rep.Signals {
+			if sig.Present {
+				presentIDs = append(presentIDs, sig.ID)
+			}
+		}
+	}
+
+	if len(presentIDs) == 0 {
+		b.WriteString("The deterministic pre-scan flagged no risk signals.\n\n")
+	} else {
+		b.WriteString("The deterministic pre-scan flagged:\n")
+		evidence := evidenceBySignal(rep, presentIDs)
+		for _, id := range presentIDs {
+			fmt.Fprintf(&b, "- %s\n", id)
+			for _, ln := range evidence[id] {
+				fmt.Fprintf(&b, "    %s\n", ln)
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	diffRange := "git diff <base>...HEAD"
+	if base != "" {
+		diffRange = fmt.Sprintf("git diff %s...HEAD", base)
+	}
+	fmt.Fprintf(&b, "Review the PR's diff (`gh pr diff %d` or `%s`). Apply safe, in-scope fixes; defer anything risky to the human owner. Stay in this worktree; do not cd elsewhere.",
+		event.PRNumber, diffRange)
+
+	return b.String()
+}
+
+// applyOverride consults for an active human override before a PR is escalated.
+// It returns (routeToAgent, reason):
+//   - routeToAgent=true  -> the escalation is fully waived; the caller should run
+//     the review agent instead of escalating. The override is marked consumed.
+//   - routeToAgent=false -> escalate; reason explains why (naming any signals
+//     that remain after a partial waiver, or the unmodified escalation reason
+//     when there is no override).
+//
+// target_kind-driven escalations (e.g. chunk_completion) are intentional human
+// gates and are never waived here — only signal-driven escalations are.
+func (o *Orchestrator) applyOverride(
+	event poller.ReportReadyEvent,
+	rep *report.Report,
+	class config.Classification,
+) (bool, string) {
+	baseReason := escalationReason(rep, class)
+
+	// Only signal-driven escalations are waivable.
+	if class.ByTargetKind || len(class.MatchedSignals) == 0 {
+		return false, baseReason
+	}
+
+	ov, err := o.store.GetActiveOverride(event.Repo.ID, event.PRNumber, event.HeadSHA)
+	if err != nil || ov == nil {
+		return false, baseReason
+	}
+
+	// Determine which of the matched (escalate-tier, present) signals remain
+	// after applying the waiver. An empty waiver list waives all of them.
+	waived := make(map[string]bool)
+	if !ov.WaivesAll() {
+		for _, s := range ov.WaivedSignalList() {
+			waived[s] = true
+		}
+	}
+	var remaining []string
+	for _, s := range class.MatchedSignals {
+		if ov.WaivesAll() || waived[s] {
+			continue
+		}
+		remaining = append(remaining, s)
+	}
+
+	if len(remaining) == 0 {
+		// Fully waived: consume the override (one-shot) and route to the agent.
+		_ = o.store.MarkOverrideConsumed(ov.ID)
+		return true, ""
+	}
+
+	// Partial waiver: still escalate, but only for the signals that remain.
+	reason := fmt.Sprintf(
+		"Escalation partially overridden: %s waived by owner; still requires review for signal(s) %s.",
+		strings.Join(quoteAll(ov.WaivedSignalList()), ", "),
+		strings.Join(quoteAll(remaining), ", "),
+	)
+	return false, reason
+}
+
 // HandleReportReady processes a single report_ready event end-to-end.
 func (o *Orchestrator) HandleReportReady(ctx context.Context, event poller.ReportReadyEvent) error {
 	// 1. Fetch config for repo
@@ -269,6 +477,20 @@ func (o *Orchestrator) HandleReportReady(ctx context.Context, event poller.Repor
 		if loaded, err := config.Load(event.Repo.ConfigPath); err == nil && loaded != nil {
 			cfg = loaded
 		}
+	}
+
+	// The poller flags ReportMissing when gating CI passed but the pre-scan
+	// report check never appeared. There is no report to fetch — escalate so a
+	// human is pinged instead of silently dropping the PR.
+	if event.ReportMissing {
+		return o.escalator.Escalate(ctx, escalate.Request{
+			Repo:       event.Repo,
+			PRNumber:   event.PRNumber,
+			HeadSHA:    event.HeadSHA,
+			Reason:     fmt.Sprintf("gating CI passed but the pre-scan report check %q never appeared within the wait ceiling", report.ReportCheckName),
+			CIRunID:    nil,
+			GitHubUser: cfg.GitHubUser,
+		})
 	}
 
 	// 2. Fetch and validate CI report
@@ -285,22 +507,47 @@ func (o *Orchestrator) HandleReportReady(ctx context.Context, event poller.Repor
 				GitHubUser: cfg.GitHubUser,
 			})
 		}
-		// Stale / missing report
+		// Missing report payload (report check present but empty/absent) ->
+		// escalate so a human is pinged, rather than silently returning.
+		if errors.Is(err, report.ErrMissing) {
+			return o.escalator.Escalate(ctx, escalate.Request{
+				Repo:       event.Repo,
+				PRNumber:   event.PRNumber,
+				HeadSHA:    event.HeadSHA,
+				Reason:     fmt.Sprintf("pre-scan report check %q produced no report payload", report.ReportCheckName),
+				CIRunID:    &event.CheckRunID,
+				GitHubUser: cfg.GitHubUser,
+			})
+		}
+		// Other transient/stale errors -> return for retry on the next poll.
 		return err
 	}
 
 	// 3. Classify risk tier
-	tier := cfg.Classify(rep)
+	class := cfg.ClassifyWithReason(rep)
+	tier := class.Tier
 
 	if tier == "human" || tier == "escalate" {
-		return o.escalator.Escalate(ctx, escalate.Request{
-			Repo:       event.Repo,
-			PRNumber:   event.PRNumber,
-			HeadSHA:    event.HeadSHA,
-			Reason:     fmt.Sprintf("risk tier %q triggered escalation", tier),
-			CIRunID:    &event.CheckRunID,
-			GitHubUser: cfg.GitHubUser,
-		})
+		// Consult a human override (D.4) before escalating. This is the
+		// state-first escape hatch: the owner can waive the specific signal(s)
+		// that would escalate — pinned to this head SHA — and let the review
+		// agent run instead. No daemon restart required; state is read per event.
+		routeToAgent, reason := o.applyOverride(event, rep, class)
+		if !routeToAgent {
+			return o.escalator.Escalate(ctx, escalate.Request{
+				Repo:       event.Repo,
+				PRNumber:   event.PRNumber,
+				HeadSHA:    event.HeadSHA,
+				Reason:     reason,
+				CIRunID:    &event.CheckRunID,
+				GitHubUser: cfg.GitHubUser,
+			})
+		}
+		// Fully waived -> fall through to the default (routine) tier and route.
+		tier = cfg.SignalTiers.DefaultTier
+		if tier == "" {
+			tier = "routine"
+		}
 	}
 
 	// 4. Route risk tier
@@ -420,7 +667,7 @@ func (o *Orchestrator) executeRun(
 	inv := runtime.Invocation{
 		AgentName: routing.AgentDef,
 		Model:     routing.Model,
-		Prompt:    o.opts.AgentPrompt,
+		Prompt:    buildReviewPrompt(event, rep),
 		Workdir:   worktreePath,
 		Limits: runtime.Limits{
 			Timeout: timeout,
@@ -475,6 +722,13 @@ func (o *Orchestrator) executeRun(
 		runRecord.Status = "done"
 		_ = o.store.UpdateRun(runRecord)
 		_, _ = o.store.UpsertPRState(event.Repo.ID, event.PRNumber, event.HeadSHA, &event.CheckRunID, poller.StateDone)
+
+		// Deterministically post the agent's review to the PR. Delivery must not
+		// depend on the agent remembering to run `gh pr comment` — it often does
+		// not (observed on haiku). The adapter already captured the agent's final
+		// summary in parsedRes.Summary; posting it here guarantees the review is
+		// visible on the PR and costs zero agent turns.
+		o.postReviewComment(ctx, event, parsedRes.Summary)
 		return nil
 	}
 
@@ -486,6 +740,42 @@ func (o *Orchestrator) executeRun(
 	_ = o.store.UpdateRun(runRecord)
 	_, _ = o.store.UpsertPRState(event.Repo.ID, event.PRNumber, event.HeadSHA, &event.CheckRunID, poller.StateCIFailed)
 	return nil
+}
+
+// reviewCommentMarker tags orchestrator-posted review comments so they can be
+// recognized later (e.g. for future update-or-create idempotency).
+const reviewCommentMarker = "<!-- pr-triage:review -->"
+
+// postReviewComment posts the agent's review summary to the PR. It is
+// best-effort: a failure to comment must not fail the run (the review is also in
+// the run log). Create-only for now; update-or-create idempotency is a tracked
+// follow-up (docs/epic-80/deferred/orchestrator-should-post-review-comment.md).
+func (o *Orchestrator) postReviewComment(ctx context.Context, event poller.ReportReadyEvent, summary string) {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return
+	}
+
+	body := reviewCommentMarker + "\n\n## 🤖 pr-triage review\n\n" + summary
+
+	// Stay under GitHub's ~65536-char issue-comment limit, truncating on a valid
+	// UTF-8 boundary.
+	const maxBody = 60000
+	if len(body) > maxBody {
+		b := body[:maxBody]
+		for len(b) > 0 && !utf8.ValidString(b) {
+			b = b[:len(b)-1]
+		}
+		body = b + "\n\n_…(truncated by pr-triage; full review in the run log)_"
+	}
+
+	if _, err := o.client.CreateComment(ctx, event.Repo.Owner, event.Repo.Name, event.PRNumber, body); err != nil {
+		// Best-effort: a comment failure must not fail the run, but it must not
+		// be silent either — a swallowed error here hid a real problem during
+		// dogfooding. The review is still in the run log.
+		fmt.Fprintf(os.Stderr, "pr-triage: failed to post review comment on %s/%s#%d: %v\n",
+			event.Repo.Owner, event.Repo.Name, event.PRNumber, err)
+	}
 }
 
 func min(a, b int) int {

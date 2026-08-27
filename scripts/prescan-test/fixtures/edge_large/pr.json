@@ -1,0 +1,9 @@
+{
+  "number": 94,
+  "title": "Large change with many files",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/large-diff",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Adds multiple utility files.",
+  "statusCheckRollup": []
+}

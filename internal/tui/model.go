@@ -246,8 +246,8 @@ func (m *Model) executeRetrigger() {
 		repoID = m.repos[0].ID
 	}
 
-	_, _ = m.store.UpsertPRState(repoID, int(selected.PRID), selected.HeadSHA, nil, "report_ready")
-	m.statusMessage = fmt.Sprintf("✅ Re-triggered review for PR #%d", selected.PRID)
+	_, _ = m.store.UpsertPRState(repoID, int(selected.PRNumber), selected.HeadSHA, nil, "report_ready")
+	m.statusMessage = fmt.Sprintf("✅ Re-triggered review for PR #%d", selected.PRNumber)
 }
 
 func (m *Model) getPRURL(r *db.Run) string {
@@ -257,7 +257,7 @@ func (m *Model) getPRURL(r *db.Run) string {
 		owner = m.repos[0].Owner
 		repo = m.repos[0].Name
 	}
-	return fmt.Sprintf("https://github.com/%s/%s/pull/%d", owner, repo, r.PRID)
+	return fmt.Sprintf("https://github.com/%s/%s/pull/%d", owner, repo, r.PRNumber)
 }
 
 // View renders the current UI state to a string.
@@ -331,7 +331,7 @@ func (m Model) viewRunList() string {
 		row := fmt.Sprintf("%s%-6d #%-7d %s %-10s %-18s %-12s %s",
 			cursorMark,
 			r.ID,
-			r.PRID,
+			r.PRNumber,
 			statusStyled,
 			r.RiskTier,
 			r.Model,
@@ -355,7 +355,7 @@ func (m Model) viewActionMenu() string {
 	var b strings.Builder
 	selected := m.SelectedRun()
 
-	b.WriteString(titleStyle.Render(fmt.Sprintf("Actions for Run #%d (PR #%d)", selected.ID, selected.PRID)))
+	b.WriteString(titleStyle.Render(fmt.Sprintf("Actions for Run #%d (PR #%d)", selected.ID, selected.PRNumber)))
 	b.WriteString("\n")
 
 	if m.statusMessage != "" {
@@ -382,7 +382,7 @@ func (m Model) viewLog() string {
 	var b strings.Builder
 	selected := m.SelectedRun()
 
-	b.WriteString(titleStyle.Render(fmt.Sprintf("Log Output: Run #%d (PR #%d)", selected.ID, selected.PRID)))
+	b.WriteString(titleStyle.Render(fmt.Sprintf("Log Output: Run #%d (PR #%d)", selected.ID, selected.PRNumber)))
 	b.WriteString("\n\n")
 
 	lines := strings.Split(m.logContent, "\n")
@@ -405,7 +405,7 @@ func (m Model) viewConfirmRetrigger() string {
 	var b strings.Builder
 	selected := m.SelectedRun()
 
-	b.WriteString(titleStyle.Render(fmt.Sprintf("Confirm Re-trigger PR #%d", selected.PRID)))
+	b.WriteString(titleStyle.Render(fmt.Sprintf("Confirm Re-trigger PR #%d", selected.PRNumber)))
 	b.WriteString("\n\n")
 	b.WriteString("Are you sure you want to reset PR state and re-enqueue review agent?\n\n")
 	b.WriteString(selectedRowStyle.Render(" [Y] Yes, re-trigger review ") + "   " + normalRowStyle.Render(" [N] Cancel "))

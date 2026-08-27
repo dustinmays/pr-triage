@@ -3,9 +3,11 @@ package orchestrator_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -93,6 +95,7 @@ func (f *fakeMockRuntime) ParseResult(log io.Reader) (*runtime.Result, error) {
 		CostBasis:  runtime.CostBasisExact,
 		Turns:      3,
 		StopReason: "completed",
+		Summary:    "Automated review: all checks pass. LGTM.",
 	}, nil
 }
 
@@ -199,6 +202,19 @@ routing:
 	}
 	if runs[0].CostUSD != 0.05 || runs[0].CostBasis != "exact" || runs[0].Turns != 3 {
 		t.Errorf("unexpected run metrics: %+v", runs[0])
+	}
+
+	// The orchestrator must deterministically post the agent's review summary to
+	// the PR — delivery must not depend on the agent running gh itself.
+	if len(ghMock.createdPosts) != 1 {
+		t.Fatalf("expected 1 review comment posted, got %d", len(ghMock.createdPosts))
+	}
+	posted := ghMock.createdPosts[0]
+	if !strings.Contains(posted, "<!-- pr-triage:review -->") {
+		t.Errorf("review comment missing marker: %q", posted)
+	}
+	if !strings.Contains(posted, "Automated review: all checks pass. LGTM.") {
+		t.Errorf("review comment missing agent summary: %q", posted)
 	}
 }
 
@@ -459,6 +475,21 @@ func TestOrchestrator_HandleReportReady_HighRiskEscalates(t *testing.T) {
 	if pr.State != "escalated" {
 		t.Errorf("pr.State = %q, want 'escalated'", pr.State)
 	}
+
+	// D.2: the escalation must name the specific signal(s) that tripped and cite
+	// their evidence, not just the tier.
+	if len(ghMock.createdPosts) != 1 {
+		t.Fatalf("expected 1 escalation comment, got %d", len(ghMock.createdPosts))
+	}
+	body := ghMock.createdPosts[0]
+	for _, want := range []string{"schema_changed_without_migration", "test_files_deleted", "src/schema.ts:42"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("escalation comment missing %q; got:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, `risk tier "escalate" triggered escalation`) {
+		t.Errorf("escalation comment still uses the generic tier-only reason:\n%s", body)
+	}
 }
 
 func TestOrchestrator_HandleReportReady_ChunkCompletionEscalates(t *testing.T) {
@@ -512,6 +543,215 @@ func TestOrchestrator_HandleReportReady_ChunkCompletionEscalates(t *testing.T) {
 	}
 	if pr.State != "escalated" {
 		t.Errorf("pr.State = %q, want 'escalated'", pr.State)
+	}
+
+	// D.2: a chunk-completion escalation should explain it was the target_kind,
+	// not leave the human guessing.
+	if len(ghMock.createdPosts) != 1 {
+		t.Fatalf("expected 1 escalation comment, got %d", len(ghMock.createdPosts))
+	}
+	body := ghMock.createdPosts[0]
+	for _, want := range []string{"target_kind", "chunk_completion"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("escalation comment missing %q; got:\n%s", want, body)
+		}
+	}
+}
+
+// overrideTestConfig keeps the default signal_tiers (all escalate signals) but
+// points the routine tier at the in-test fake runtime so a fully-waived PR
+// actually runs the agent instead of shelling out to claude.
+const overrideTestConfig = `
+routing:
+  routine:
+    runtime: fake-mock-rt
+    model: test-model
+    agent_def: test-agent
+`
+
+func TestOrchestrator_Override_FullWaiver_RunsAgent(t *testing.T) {
+	initFakeRuntime()
+
+	tmpDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer func() { _ = database.Close() }()
+	store := db.NewStore(database)
+
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(overrideTestConfig), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	repo, err := store.UpsertRepo(&db.Repo{
+		Owner: "dustinmays", Name: "pr-triage", BaseRef: "main", PollInterval: "5m", ConfigPath: cfgPath,
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepo: %v", err)
+	}
+
+	const prNum = 94
+	const headSHA = "sha-highrisk"
+	// The PR must exist in state so the override can be recorded/consulted.
+	if _, err := store.UpsertPRState(repo.ID, prNum, headSHA, nil, "escalated"); err != nil {
+		t.Fatalf("UpsertPRState: %v", err)
+	}
+	// Owner waives all escalate-tier signals for this head SHA.
+	if _, err := store.RecordOverride(&db.Override{RepoID: repo.ID, PRNumber: prNum, HeadSHA: headSHA}); err != nil {
+		t.Fatalf("RecordOverride: %v", err)
+	}
+
+	highRisk, _ := os.ReadFile(filepath.Join("..", "..", "testdata", "reports", "high-risk.json"))
+	ghMock := newMockGHClient()
+	ghMock.outputs[400] = &gh.CheckRunOutput{Summary: gh.Ptr(string(highRisk))}
+
+	orch := orchestrator.New(store, ghMock, escalate.New(store, ghMock),
+		orchestrator.WithWorktreeDir(filepath.Join(tmpDir, "wt")),
+		orchestrator.WithLogDir(filepath.Join(tmpDir, "logs")),
+	)
+
+	event := poller.ReportReadyEvent{Repo: *repo, PRNumber: prNum, HeadSHA: headSHA, CheckRunID: 400}
+	if err := orch.HandleReportReady(context.Background(), event); err != nil {
+		t.Fatalf("HandleReportReady: %v", err)
+	}
+
+	pr, err := store.GetPRState(repo.ID, prNum)
+	if err != nil {
+		t.Fatalf("GetPRState: %v", err)
+	}
+	if pr.State != "done" {
+		t.Errorf("pr.State = %q, want 'done' (override should route to the agent)", pr.State)
+	}
+	if len(ghMock.addedLabels) != 0 {
+		t.Errorf("expected no escalation label with a full override, got %v", ghMock.addedLabels)
+	}
+	// The override must be consumed (one-shot).
+	if _, err := store.GetActiveOverride(repo.ID, prNum, headSHA); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("expected override consumed, got %v", err)
+	}
+}
+
+func TestOrchestrator_Override_PartialWaiver_StillEscalates(t *testing.T) {
+	tmpDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tmpDir, "test.db"))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer func() { _ = database.Close() }()
+	store := db.NewStore(database)
+
+	repo, err := store.UpsertRepo(&db.Repo{
+		Owner: "dustinmays", Name: "pr-triage", BaseRef: "main", PollInterval: "5m", ConfigPath: "nonexistent.yaml",
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepo: %v", err)
+	}
+
+	const prNum = 95
+	const headSHA = "sha-highrisk"
+	if _, err := store.UpsertPRState(repo.ID, prNum, headSHA, nil, "ci_passed"); err != nil {
+		t.Fatalf("UpsertPRState: %v", err)
+	}
+	// Waive only one of the two present escalate signals.
+	if _, err := store.RecordOverride(&db.Override{
+		RepoID: repo.ID, PRNumber: prNum, HeadSHA: headSHA, WaivedSignals: "schema_changed_without_migration",
+	}); err != nil {
+		t.Fatalf("RecordOverride: %v", err)
+	}
+
+	highRisk, _ := os.ReadFile(filepath.Join("..", "..", "testdata", "reports", "high-risk.json"))
+	ghMock := newMockGHClient()
+	ghMock.outputs[400] = &gh.CheckRunOutput{Summary: gh.Ptr(string(highRisk))}
+
+	orch := orchestrator.New(store, ghMock, escalate.New(store, ghMock))
+	event := poller.ReportReadyEvent{Repo: *repo, PRNumber: prNum, HeadSHA: headSHA, CheckRunID: 400}
+	if err := orch.HandleReportReady(context.Background(), event); err != nil {
+		t.Fatalf("HandleReportReady: %v", err)
+	}
+
+	pr, err := store.GetPRState(repo.ID, prNum)
+	if err != nil {
+		t.Fatalf("GetPRState: %v", err)
+	}
+	if pr.State != "escalated" {
+		t.Errorf("pr.State = %q, want 'escalated' (a remaining signal must still escalate)", pr.State)
+	}
+	if len(ghMock.createdPosts) != 1 {
+		t.Fatalf("expected 1 escalation comment, got %d", len(ghMock.createdPosts))
+	}
+	body := ghMock.createdPosts[0]
+	if !strings.Contains(body, "test_files_deleted") {
+		t.Errorf("escalation should still name the remaining signal test_files_deleted; got:\n%s", body)
+	}
+	if !strings.Contains(body, "schema_changed_without_migration") {
+		t.Errorf("escalation should note the waived signal; got:\n%s", body)
+	}
+	// A partial override is not consumed — it stays active for the remaining decision.
+	if _, err := store.GetActiveOverride(repo.ID, prNum, headSHA); err != nil {
+		t.Errorf("partial override should remain active, got %v", err)
+	}
+}
+
+func TestHandleReportReady_ReportMissing_Escalates(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer func() { _ = database.Close() }()
+
+	store := db.NewStore(database)
+	repo, err := store.UpsertRepo(&db.Repo{
+		Owner:        "dustinmays",
+		Name:         "pr-triage",
+		BaseRef:      "main",
+		PollInterval: "5m",
+		ConfigPath:   "nonexistent.yaml",
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepo failed: %v", err)
+	}
+
+	ghMock := newMockGHClient()
+	// ghMock has no check run outputs configured, asserting that report fetch is not needed.
+
+	escalator := escalate.New(store, ghMock)
+	orch := orchestrator.New(store, ghMock, escalator)
+
+	ctx := context.Background()
+	event := poller.ReportReadyEvent{
+		Repo:          *repo,
+		PRNumber:      77,
+		HeadSHA:       "sha-missing-report",
+		CheckRunID:    0,
+		ReportMissing: true,
+	}
+
+	if err := orch.HandleReportReady(ctx, event); err != nil {
+		t.Fatalf("HandleReportReady failed: %v", err)
+	}
+
+	// Verify PR state is escalated
+	pr, err := store.GetPRState(repo.ID, 77)
+	if err != nil {
+		t.Fatalf("GetPRState failed: %v", err)
+	}
+	if pr.State != "escalated" {
+		t.Errorf("pr.State = %q, want 'escalated'", pr.State)
+	}
+
+	if len(ghMock.addedLabels) != 1 || ghMock.addedLabels[0] != escalate.DefaultEscalationLabel {
+		t.Errorf("expected escalation label applied, got %v", ghMock.addedLabels)
+	}
+
+	if len(ghMock.createdPosts) != 1 {
+		t.Fatalf("expected 1 escalation comment, got %d", len(ghMock.createdPosts))
+	}
+	if !strings.Contains(ghMock.createdPosts[0], "never appeared within the wait ceiling") {
+		t.Errorf("escalation comment missing expected reason; got:\n%s", ghMock.createdPosts[0])
 	}
 }
 

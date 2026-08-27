@@ -1,0 +1,9 @@
+{
+  "number": 42,
+  "title": "Remove the widget unit test",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/drop-widget-test",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Deletes an obsolete test file.",
+  "statusCheckRollup": []
+}

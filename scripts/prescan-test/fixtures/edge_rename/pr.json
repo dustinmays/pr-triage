@@ -1,0 +1,9 @@
+{
+  "number": 91,
+  "title": "Rename helper file",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/rename-helper",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Renames helper.go to helpers.go.",
+  "statusCheckRollup": []
+}

@@ -1,0 +1,9 @@
+{
+  "number": 63,
+  "title": "Update CODEOWNERS",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/update-codeowners",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Edits CODEOWNERS (not under workflows/).",
+  "statusCheckRollup": []
+}
