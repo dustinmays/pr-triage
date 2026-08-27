@@ -42,7 +42,6 @@ severity (low|medium|high|n/a), area, found_by, found_in, status
 | [escalation-comment-lacks-trigger-reason](./escalation-comment-lacks-trigger-reason.md) | enhancement | medium | orchestrator, escalate, observability | escalation comment/stop_reason should name the triggering signal + evidence, not just "escalate tripped" |
 | [escalated-state-overwritten-by-ci-failed](./escalated-state-overwritten-by-ci-failed.md) | bug | medium | poller, escalate | escalated PR flips to `ci_failed` on re-poll (escalated not terminal; red owner-review-gate misread as CI fail) |
 | [status-shows-internal-pr-id](./status-shows-internal-pr-id.md) | bug | low | cli, observability | `status` prints internal `runs.pr_id` instead of the GitHub PR number |
-| [scanner-scans-its-own-test-fixtures](./scanner-scans-its-own-test-fixtures.md) | bug | medium | scanner, poller | scanner trips signals on fixture files (paths matched anywhere via `(^\|/)`; also scans `apply.sh`/`golden.json`) — confirmed escalating #106 |
 | [schema-sql-matches-migration-regex](./schema-sql-matches-migration-regex.md) | question | low | scanner | editing `internal/db/schema.sql` also trips `migration_history_rewritten` (broad `MIGRATION_RE`) |
 | [largest-file-empty-path-on-zero-line-diffs](./largest-file-empty-path.md) | question | low | scanner | `diff.largest_file` is `{path:"",changed:0}` for pure-rename / pure-binary diffs (awk `max_changed` init) |
 
@@ -51,3 +50,4 @@ severity (low|medium|high|n/a), area, found_by, found_in, status
 | Finding | Kind | Area | Resolution |
 |---------|------|------|------------|
 | [orchestrator-should-post-review-comment](./orchestrator-should-post-review-comment.md) | enhancement | orchestrator, agents | orchestrator now posts the agent's `Result.Summary` deterministically (marker + truncation); update-or-create idempotency is the small remaining follow-up |
+| [scanner-scans-its-own-test-fixtures](./scanner-scans-its-own-test-fixtures.md) | bug | scanner, poller | #111 — `SIGNAL_EXCLUDE_RE` filters `scripts/prescan-test/fixtures/**` + `**/testdata/**` out of signal inputs (diff counts unaffected); `edge_fixture_paths` fixture proves it |

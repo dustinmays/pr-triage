@@ -1,0 +1,9 @@
+{
+  "number": 120,
+  "title": "Add scanner test fixtures",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/add-prescan-fixtures",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Only adds scanner test data: fixture copies of migrations, schema, go.mod, plus a testdata SQL file.",
+  "statusCheckRollup": []
+}
