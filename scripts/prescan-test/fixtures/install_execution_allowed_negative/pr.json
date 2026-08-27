@@ -1,0 +1,9 @@
+{
+  "number": 54,
+  "title": "Document code generation",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/document-generation",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Adds a comment mentioning generate, not a directive.",
+  "statusCheckRollup": []
+}

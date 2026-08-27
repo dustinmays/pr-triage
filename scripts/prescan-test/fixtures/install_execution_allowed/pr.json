@@ -1,0 +1,9 @@
+{
+  "number": 53,
+  "title": "Add code generation directive",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/go-generate",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Adds a go:generate directive.",
+  "statusCheckRollup": []
+}

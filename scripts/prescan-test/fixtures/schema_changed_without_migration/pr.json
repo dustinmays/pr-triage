@@ -1,0 +1,9 @@
+{
+  "number": 47,
+  "title": "Change schema without migration",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/schema-no-migration",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Edits schema.sql without adding a migration.",
+  "statusCheckRollup": []
+}

@@ -1,0 +1,107 @@
+{
+  "chunk": null,
+  "ci": {
+    "failing_checks": [],
+    "status": "none"
+  },
+  "diff": {
+    "deletions": 1,
+    "files_changed": 2,
+    "generated_files": 0,
+    "insertions": 2,
+    "largest_file": {
+      "changed": 2,
+      "path": "internal/db/schema.sql"
+    },
+    "source_files": 2,
+    "source_insertions": 2,
+    "top_level_dirs": [
+      "internal"
+    ]
+  },
+  "notes": [],
+  "pr": {
+    "base": "chunk/scanner-hardening",
+    "head": "feat/schema-with-migration",
+    "issue_refs": [],
+    "number": 48,
+    "target_kind": "implementation",
+    "title": "Change schema with migration"
+  },
+  "schema_version": 1,
+  "signals": [
+    {
+      "evidence": [
+        {
+          "detail": "ALTER TABLE users ADD COLUMN email TEXT;",
+          "file": "internal/db/migrations/0002_add_email.sql",
+          "line": 1
+        }
+      ],
+      "id": "migration_sql_added",
+      "present": true
+    },
+    {
+      "evidence": [
+        {
+          "detail": "- CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);",
+          "file": "internal/db/schema.sql",
+          "line": 1
+        }
+      ],
+      "id": "migration_history_rewritten",
+      "present": true
+    },
+    {
+      "evidence": [],
+      "id": "schema_changed_without_migration",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "dependency_manifest_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "install_execution_allowed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "test_files_deleted",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "tests_skipped_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "safeguard_config_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "suppressions_added",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "workflow_changed",
+      "present": false
+    },
+    {
+      "evidence": [],
+      "id": "stack_choice_changed",
+      "present": false
+    }
+  ],
+  "stack": {
+    "framework": null,
+    "linter": null,
+    "orm": null,
+    "package_manager": null
+  }
+}

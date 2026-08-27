@@ -1,0 +1,9 @@
+{
+  "number": 65,
+  "title": "Update a dependency",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/update-dep",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Updates a dependency version in go.mod (go/module unchanged).",
+  "statusCheckRollup": []
+}

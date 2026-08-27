@@ -1,0 +1,9 @@
+{
+  "number": 45,
+  "title": "Rewrite migration history",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/rewrite-migration",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Edits an existing migration to change a column type.",
+  "statusCheckRollup": []
+}

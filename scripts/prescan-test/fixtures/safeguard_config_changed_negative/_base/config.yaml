@@ -1,0 +1,2 @@
+timeout: 30s
+retries: 3

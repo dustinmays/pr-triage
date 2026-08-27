@@ -1,0 +1,9 @@
+{
+  "number": 48,
+  "title": "Change schema with migration",
+  "baseRefName": "chunk/scanner-hardening",
+  "headRefName": "feat/schema-with-migration",
+  "headRefOid": "0000000000000000000000000000000000000000",
+  "body": "Edits schema.sql and adds a migration.",
+  "statusCheckRollup": []
+}
