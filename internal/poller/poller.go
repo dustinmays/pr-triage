@@ -66,6 +66,10 @@ type ReportReadyEvent struct {
 	PRNumber   int
 	HeadSHA    string
 	CheckRunID int64
+	// ReportMissing is true when gating CI passed but the pre-scan report
+	// check never appeared within the wait ceiling. The orchestrator escalates
+	// on this instead of trying to fetch a report that isn't there.
+	ReportMissing bool
 }
 
 // SleepFunc is a hook for context-aware sleeping (customizable for deterministic tests).
@@ -344,7 +348,7 @@ func (p *Poller) ProcessPR(ctx context.Context, repo db.Repo, pr *gh.PullRequest
 		return nil
 	case StateCIPassed:
 		// Already passed -> advance to report_ready if not emitted.
-		return p.emitReportReady(ctx, repo, number, headSHA, existing.LastRunID)
+		return p.emitReportReady(ctx, repo, number, headSHA, existing.LastRunID, false)
 	case StateCIRunning, StateIdle:
 		// In-flight CI -> continue polling CI.
 		return p.pollCI(ctx, repo, number, headSHA)
@@ -366,6 +370,7 @@ const (
 func (p *Poller) pollCI(ctx context.Context, repo db.Repo, number int, headSHA string) error {
 	backoff := p.opts.InitialBackoff
 	start := time.Now()
+	gatingPassed := false
 
 	for {
 		if ctx.Err() != nil {
@@ -379,6 +384,13 @@ func (p *Poller) pollCI(ctx context.Context, repo db.Repo, number int, headSHA s
 		}
 
 		status, runID := evaluateCheckRuns(checkRuns)
+
+		// Remember whether gating CI ever actually passed. Used at the ceiling
+		// to tell "report check never showed" (escalate) apart from "gating CI
+		// itself never finished" (genuine timeout -> ci_failed).
+		if status == checkRunPassed {
+			gatingPassed = true
+		}
 
 		// The pre-scan report lives in a dedicated check run (report.ReportCheckName),
 		// not the arbitrary gating run evaluateCheckRuns happens to return. Resolve
@@ -394,7 +406,7 @@ func (p *Poller) pollCI(ctx context.Context, repo db.Repo, number int, headSHA s
 		switch status {
 		case checkRunPassed:
 			// CI passed -> persist report_ready and emit internal signal
-			return p.emitReportReady(ctx, repo, number, headSHA, &reportID)
+			return p.emitReportReady(ctx, repo, number, headSHA, &reportID, false)
 
 		case checkRunFailed:
 			// CI failed -> persist ci_failed (watching head SHA)
@@ -406,7 +418,14 @@ func (p *Poller) pollCI(ctx context.Context, repo db.Repo, number int, headSHA s
 		case checkRunPending:
 			// CI is still in progress or no check runs have registered yet
 			if time.Since(start)+backoff > p.opts.TimeoutCeiling {
-				// Timeout ceiling reached -> mark as ci_failed
+				if gatingPassed {
+					// Gating CI passed but the pre-scan report check never
+					// appeared within the ceiling. Don't silently drop the PR:
+					// emit a report_ready event flagged ReportMissing so the
+					// orchestrator escalates and a human is pinged.
+					return p.emitReportReady(ctx, repo, number, headSHA, nil, true)
+				}
+				// Gating CI itself never finished -> genuine timeout.
 				_, _ = p.store.UpsertPRState(repo.ID, number, headSHA, runID, StateCIFailed)
 				return ErrCITimeout
 			}
@@ -485,7 +504,7 @@ func evaluateCheckRuns(runs []*gh.CheckRun) (checkRunState, *int64) {
 	return checkRunPassed, latestRunID
 }
 
-func (p *Poller) emitReportReady(ctx context.Context, repo db.Repo, number int, headSHA string, runID *int64) error {
+func (p *Poller) emitReportReady(ctx context.Context, repo db.Repo, number int, headSHA string, runID *int64, reportMissing bool) error {
 	var runIDVal int64
 	if runID != nil {
 		runIDVal = *runID
@@ -496,10 +515,11 @@ func (p *Poller) emitReportReady(ctx context.Context, repo db.Repo, number int, 
 	}
 
 	event := ReportReadyEvent{
-		Repo:       repo,
-		PRNumber:   number,
-		HeadSHA:    headSHA,
-		CheckRunID: runIDVal,
+		Repo:          repo,
+		PRNumber:      number,
+		HeadSHA:       headSHA,
+		CheckRunID:    runIDVal,
+		ReportMissing: reportMissing,
 	}
 
 	select {

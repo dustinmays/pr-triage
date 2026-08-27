@@ -181,13 +181,7 @@ func TestPoller_NewPR_CIPasses(t *testing.T) {
 	}
 }
 
-// TestPoller_GatingGreenNoReportCheck_StaysPending guards the fix for the
-// dogfood-surfaced bug where the poller emitted report_ready with an arbitrary
-// check-run ID. When every gating check is green but the pr-prescan-report check
-// run is absent, the poller must NOT emit report_ready (which would make the
-// orchestrator fetch the report from the wrong check run); it should keep waiting
-// until the ceiling, then mark ci_failed.
-func TestPoller_GatingGreenNoReportCheck_StaysPending(t *testing.T) {
+func TestPoller_GatingGreenNoReportCheck_EscalatesViaReportMissing(t *testing.T) {
 	store := newMockStore()
 	store.repos = append(store.repos, db.Repo{
 		ID:      1,
@@ -217,21 +211,26 @@ func TestPoller_GatingGreenNoReportCheck_StaysPending(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	// Expected to hit the timeout ceiling rather than emit report_ready.
 	_ = p.PollOnce(ctx)
 
 	prState, err := store.GetPRState(1, 7)
 	if err != nil {
 		t.Fatalf("GetPRState failed: %v", err)
 	}
-	if prState.State == poller.StateReportReady {
-		t.Errorf("state = report_ready, but no pr-prescan-report check exists; want it to keep waiting/ci_failed")
+	if prState.State != poller.StateReportReady {
+		t.Errorf("state = %q, want report_ready (report-missing escalation path)", prState.State)
 	}
 
 	select {
 	case evt := <-p.ReportReadyEvents():
-		t.Fatalf("unexpected ReportReadyEvent emitted without a report check run: %+v", evt)
+		if !evt.ReportMissing {
+			t.Errorf("event ReportMissing = false, want true")
+		}
+		if evt.CheckRunID != 0 {
+			t.Errorf("event CheckRunID = %d, want 0 (no report check)", evt.CheckRunID)
+		}
 	default:
+		t.Fatalf("expected a ReportReadyEvent with ReportMissing=true, got none")
 	}
 }
 

@@ -6,7 +6,8 @@ severity: medium
 area: poller, report, workflows
 found_by: dustinmays
 found_in: chunk/scanner-hardening dogfood run — PR #93 stuck in report_ready (2026-08-24)
-status: open
+status: fixed
+fixed_in: "#113 — poller flags ReportMissing at ceiling when gating passed; orchestrator escalates on ReportMissing + report.ErrMissing (escalate-on-missing option). Configurable check-name + install-command options remain (see workflow-install-command)."
 related:
   - ../../../internal/poller/poller.go     # reportCheckRunID(), pollCI report gate
   - ../../../internal/report/report.go      # ReportCheckName constant

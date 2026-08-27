@@ -694,6 +694,67 @@ func TestOrchestrator_Override_PartialWaiver_StillEscalates(t *testing.T) {
 	}
 }
 
+func TestHandleReportReady_ReportMissing_Escalates(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer func() { _ = database.Close() }()
+
+	store := db.NewStore(database)
+	repo, err := store.UpsertRepo(&db.Repo{
+		Owner:        "dustinmays",
+		Name:         "pr-triage",
+		BaseRef:      "main",
+		PollInterval: "5m",
+		ConfigPath:   "nonexistent.yaml",
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepo failed: %v", err)
+	}
+
+	ghMock := newMockGHClient()
+	// ghMock has no check run outputs configured, asserting that report fetch is not needed.
+
+	escalator := escalate.New(store, ghMock)
+	orch := orchestrator.New(store, ghMock, escalator)
+
+	ctx := context.Background()
+	event := poller.ReportReadyEvent{
+		Repo:          *repo,
+		PRNumber:      77,
+		HeadSHA:       "sha-missing-report",
+		CheckRunID:    0,
+		ReportMissing: true,
+	}
+
+	if err := orch.HandleReportReady(ctx, event); err != nil {
+		t.Fatalf("HandleReportReady failed: %v", err)
+	}
+
+	// Verify PR state is escalated
+	pr, err := store.GetPRState(repo.ID, 77)
+	if err != nil {
+		t.Fatalf("GetPRState failed: %v", err)
+	}
+	if pr.State != "escalated" {
+		t.Errorf("pr.State = %q, want 'escalated'", pr.State)
+	}
+
+	if len(ghMock.addedLabels) != 1 || ghMock.addedLabels[0] != escalate.DefaultEscalationLabel {
+		t.Errorf("expected escalation label applied, got %v", ghMock.addedLabels)
+	}
+
+	if len(ghMock.createdPosts) != 1 {
+		t.Fatalf("expected 1 escalation comment, got %d", len(ghMock.createdPosts))
+	}
+	if !strings.Contains(ghMock.createdPosts[0], "never appeared within the wait ceiling") {
+		t.Errorf("escalation comment missing expected reason; got:\n%s", ghMock.createdPosts[0])
+	}
+}
+
 // TestUnusedImports suppresses unused compiler warnings.
 func TestUnusedImports(t *testing.T) {
 	_ = json.Marshal

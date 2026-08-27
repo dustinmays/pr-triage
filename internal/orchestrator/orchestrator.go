@@ -422,6 +422,20 @@ func (o *Orchestrator) HandleReportReady(ctx context.Context, event poller.Repor
 		}
 	}
 
+	// The poller flags ReportMissing when gating CI passed but the pre-scan
+	// report check never appeared. There is no report to fetch — escalate so a
+	// human is pinged instead of silently dropping the PR.
+	if event.ReportMissing {
+		return o.escalator.Escalate(ctx, escalate.Request{
+			Repo:       event.Repo,
+			PRNumber:   event.PRNumber,
+			HeadSHA:    event.HeadSHA,
+			Reason:     fmt.Sprintf("gating CI passed but the pre-scan report check %q never appeared within the wait ceiling", report.ReportCheckName),
+			CIRunID:    nil,
+			GitHubUser: cfg.GitHubUser,
+		})
+	}
+
 	// 2. Fetch and validate CI report
 	rep, err := report.FetchAndValidate(ctx, o.client, event.Repo.Owner, event.Repo.Name, event.CheckRunID)
 	if err != nil {
@@ -436,7 +450,19 @@ func (o *Orchestrator) HandleReportReady(ctx context.Context, event poller.Repor
 				GitHubUser: cfg.GitHubUser,
 			})
 		}
-		// Stale / missing report
+		// Missing report payload (report check present but empty/absent) ->
+		// escalate so a human is pinged, rather than silently returning.
+		if errors.Is(err, report.ErrMissing) {
+			return o.escalator.Escalate(ctx, escalate.Request{
+				Repo:       event.Repo,
+				PRNumber:   event.PRNumber,
+				HeadSHA:    event.HeadSHA,
+				Reason:     fmt.Sprintf("pre-scan report check %q produced no report payload", report.ReportCheckName),
+				CIRunID:    &event.CheckRunID,
+				GitHubUser: cfg.GitHubUser,
+			})
+		}
+		// Other transient/stale errors -> return for retry on the next poll.
 		return err
 	}
 
