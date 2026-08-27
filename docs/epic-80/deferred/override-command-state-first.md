@@ -6,7 +6,7 @@ severity: high
 area: cli, orchestrator, poller, db
 found_by: dustinmays
 found_in: chunk/scanner-hardening — escalation override research (2026-08-26)
-status: planned
+status: implemented (#101 / D.4, 2026-08-26)
 related:
   - ../design/escalation-override.md          # full design + decision (Option C primary, A fast-follow)
   - ../../adr/0006-local-state-is-source-of-truth.md
@@ -43,3 +43,30 @@ Orthogonal to Chunk A/B/C (scanner hardening + Swift). Candidate for its own chu
 or a follow-up epic ("stateful control plane / human-in-the-loop"), alongside
 [per-chunk-triage-config](./per-chunk-triage-config.md) and
 [chunk-setup-agent](./chunk-setup-agent.md).
+
+## Implementation notes (D.4 / #101)
+
+Built under Chunk D (#97) as part of the state-first MVP. Shape as designed:
+`overrides(repo_id, pr_number, head_sha, waived_signals, reason, created_at,
+consumed_at)`; `RecordOverride`/`GetActiveOverride`/`MarkOverrideConsumed`;
+`pr-triage override <pr> [--signal ...] [--reason ...] [--repo owner/name]`;
+`Orchestrator.applyOverride` consulted in `HandleReportReady` before escalating;
+SHA-pinned; one-shot on full waiver (consumed); partial waiver still escalates
+for the remaining signals.
+
+**Key mechanism that wasn't in the original design:** because D.1 made
+`escalated` a *terminal* poller state, an override alone would never be consulted
+— the poller stops re-emitting `report_ready` for an escalated PR. So the
+`override` command, when the PR is currently `escalated`, **re-arms** it by
+resetting the PR state to `ci_passed` (same head SHA, whose report check still
+passed). The poller then re-emits `report_ready` on its next poll, which re-runs
+`HandleReportReady`, which consults the override. This is the state-first trigger:
+a local state write drives re-evaluation, no daemon restart, no GitHub round-trip.
+
+`target_kind`-driven escalations (e.g. `chunk_completion`) are intentionally
+**not** waivable by the override (only signal-driven escalations are).
+
+Deferred fast-follows still open: the `triage-override` GitHub-side label as an
+*input* channel; recording the override application directly on the `runs` row
+(currently the audit trail is the `overrides.consumed_at` timestamp linkable by
+`(repo_id, pr_number, head_sha)`).
