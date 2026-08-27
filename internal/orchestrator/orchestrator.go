@@ -354,6 +354,63 @@ func quoteAll(ss []string) []string {
 	return out
 }
 
+// buildReviewPrompt constructs the per-PR instruction handed to the review
+// agent. It names the PR and injects the deterministic pre-scan's present
+// signals with their file:line evidence, so the agent starts from facts
+// instead of guessing which PR it is on (issue #116). The agent def
+// (--agent) still supplies the review methodology; this supplies the context.
+func buildReviewPrompt(event poller.ReportReadyEvent, rep *report.Report) string {
+	var b strings.Builder
+
+	title := ""
+	base := ""
+	if rep != nil {
+		title = rep.PR.Title
+		base = rep.PR.Base
+	}
+	shortSHA := event.HeadSHA
+	if len(shortSHA) > 7 {
+		shortSHA = shortSHA[:7]
+	}
+
+	fmt.Fprintf(&b, "You are reviewing PR #%d (%q) in %s/%s, checked out in this worktree (detached at the PR head %s).\n\n",
+		event.PRNumber, title, event.Repo.Owner, event.Repo.Name, shortSHA)
+
+	// Collect the IDs of every present signal, in report order, then reuse
+	// evidenceBySignal to render each one's "file:line — detail" lines.
+	var presentIDs []string
+	if rep != nil {
+		for _, sig := range rep.Signals {
+			if sig.Present {
+				presentIDs = append(presentIDs, sig.ID)
+			}
+		}
+	}
+
+	if len(presentIDs) == 0 {
+		b.WriteString("The deterministic pre-scan flagged no risk signals.\n\n")
+	} else {
+		b.WriteString("The deterministic pre-scan flagged:\n")
+		evidence := evidenceBySignal(rep, presentIDs)
+		for _, id := range presentIDs {
+			fmt.Fprintf(&b, "- %s\n", id)
+			for _, ln := range evidence[id] {
+				fmt.Fprintf(&b, "    %s\n", ln)
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	diffRange := "git diff <base>...HEAD"
+	if base != "" {
+		diffRange = fmt.Sprintf("git diff %s...HEAD", base)
+	}
+	fmt.Fprintf(&b, "Review the PR's diff (`gh pr diff %d` or `%s`). Apply safe, in-scope fixes; defer anything risky to the human owner. Stay in this worktree; do not cd elsewhere.",
+		event.PRNumber, diffRange)
+
+	return b.String()
+}
+
 // applyOverride consults for an active human override before a PR is escalated.
 // It returns (routeToAgent, reason):
 //   - routeToAgent=true  -> the escalation is fully waived; the caller should run
@@ -610,7 +667,7 @@ func (o *Orchestrator) executeRun(
 	inv := runtime.Invocation{
 		AgentName: routing.AgentDef,
 		Model:     routing.Model,
-		Prompt:    o.opts.AgentPrompt,
+		Prompt:    buildReviewPrompt(event, rep),
 		Workdir:   worktreePath,
 		Limits: runtime.Limits{
 			Timeout: timeout,

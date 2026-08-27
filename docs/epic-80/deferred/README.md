@@ -40,6 +40,7 @@ severity (low|medium|high|n/a), area, found_by, found_in, status
 | [escalated-state-overwritten-by-ci-failed](./escalated-state-overwritten-by-ci-failed.md) | bug | medium | poller, escalate | escalated PR flips to `ci_failed` on re-poll (escalated not terminal; red owner-review-gate misread as CI fail) |
 | [status-shows-internal-pr-id](./status-shows-internal-pr-id.md) | bug | low | cli, observability | `status` prints internal `runs.pr_id` instead of the GitHub PR number |
 | [schema-sql-matches-migration-regex](./schema-sql-matches-migration-regex.md) | question | low | scanner | editing `internal/db/schema.sql` also trips `migration_history_rewritten` (broad `MIGRATION_RE`) |
+| [agent-can-escape-worktree](./agent-can-escape-worktree.md) | enhancement | runtime, orchestrator, security | agent can `cd` out of its worktree into the main checkout (#116 mitigates at prompt level only; harden the boundary) |
 | [largest-file-empty-path-on-zero-line-diffs](./largest-file-empty-path.md) | question | low | scanner | `diff.largest_file` is `{path:"",changed:0}` for pure-rename / pure-binary diffs (awk `max_changed` init) |
 
 ## Resolved
