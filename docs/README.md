@@ -25,9 +25,4 @@ single-fact markdown files with YAML front matter (`title`, `tags`,
 
 ## Architecture Decision Records
 
-- [0000 - ADR template](adr/0000-template.md)
-- [0001 - Delivery shape: Go CLI + SQLite + launchd](adr/0001-go-cli-sqlite-launchd.md)
-- [0002 - The report stays in CI/CD](adr/0002-report-stays-in-cicd.md)
-- [0003 - Adapters exec subprocesses](adr/0003-exec-subprocess-adapters.md)
-- [0004 - Shared SQLite schema with repo_id](adr/0004-shared-sqlite-schema-repo-id.md)
-- [0005 - Risk-tier routing lives in config](adr/0005-risk-tier-routing-in-config.md)
+The full, status-tracked list of ADRs — plus guidance and the template for writing new ones — lives in **[docs/adr/README.md](adr/README.md)** (the authoritative index).
