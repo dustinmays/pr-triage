@@ -252,6 +252,9 @@ pr-triage *reads* them; it authors them collaboratively but the human ratifies.
       that constrain this area (cost basis, result-shape normalization, dedup, etc.).
     - **Current build state, if resuming** — `STATE.md` and `deferred/` for the chunk.
       (Less important when *starting* a chunk; the domain facts and ADRs matter more.)
+    - **The repo's test standard** — detect (or ask for) the local convention for
+      acceptance/charter-level tests and record it as a charter field, so the TDD agent
+      binds to the house style instead of inventing one (see §5.1).
   The output isn't just a charter — it's a charter whose "constraints" and "prior
   decisions" sections are *linked to real files*, so the contract is enforceable and the
   human can see what it rests on. *Assists; the human ratifies.*
@@ -322,6 +325,74 @@ current unit-test-only workflows omit.
 **Guardrail (from §2.3/§2.5):** more tests is not the goal; *evidence* is. Watch for
 saturation (all-green tells you nothing), grade the output not the path, and periodically
 have a human read transcripts to confirm the grader is honest.
+
+### 5.1 The charter-scenario test standard (stack-agnostic)
+
+pr-triage runs against many repos — Go here, Node/TypeScript next, Python after that. The
+language, test runner, and infrastructure will all change; **the process and the bar for
+charter tests must not.** So we standardize *properties*, not a framework. The key
+separation that makes this portable:
+
+> **The scenario is the durable, portable artifact. The test is its stack-local
+> binding.** The Given/When/Then scenario is written once, in the owner's language, and
+> survives across stacks. The TDD agent *binds* it to whatever the repo actually uses
+> (Go `testing`+testify, Vitest/Jest, pytest, Catch2, Playwright for UI, a TUI driver…).
+> The standard below governs the binding so it stays readable and rigorous everywhere.
+
+**Level-set early (a charter step, not an afterthought).** Before writing any test, the
+charter/planning agent must **detect or ask for the repo's existing test standard** —
+specifically for acceptance/charter-level tests, which often differ from unit-test
+convention:
+- Existing test layout, runner, and assertion/matcher library.
+- Any house style for acceptance/e2e/golden tests (naming, fixtures, snapshot policy).
+- The local tool for each endpoint type the chunk needs (golden-file, component, TUI,
+  visual).
+Record the answer as a charter field — **"Test standard (this repo)"** — so the TDD agent
+obeys the house style instead of inventing one. If none exists, the agent proposes one
+from this standard and the human ratifies it (that itself becomes a small ADR-like
+decision for the repo).
+
+**Charter tests are held to a higher bar than unit tests — on two axes:**
+
+1. **Readability — approaching pseudocode.** A junior engineer should read the test and
+   say *"yes, this expects X and specifically not Y"* without reading the implementation.
+   This is a solved problem *if you use the stack's most expressive assertion layer* — the
+   way C++ went from cryptic `assert(a==b)` to Catch2/Hamcrest matchers that read like
+   prose (`REQUIRE_THAT(result, Equals(expected))`). General rule: **prefer the most
+   expressive matcher/assertion library the stack offers**, name the test as a sentence
+   about behavior, keep one behavior per test, use named fixtures and concrete expected
+   values, and make the failure message say what was expected vs. observed.
+
+2. **Resolution — it tests something *vital to acceptance*, at the endpoint.** Charter
+   tests assert observable behavior and output *contracts*, not internal wiring. They
+   must be falsifiable (fail red for the right reason), prefer precise **golden/fixture
+   contracts** where an output is exact, and carry balanced must-do / must-not-do cases.
+   A charter test that can't distinguish "did the chunk's promised thing" from "didn't"
+   is not a charter test.
+
+**Grader choice follows the endpoint (deterministic-first).** Use code/golden graders for
+anything precise; reserve the LLM-judge for genuinely judgment behaviors (e.g. "is the
+error message clear?") — never for something a fixture could pin exactly.
+
+### 5.2 Endpoint-type playbook
+
+A chunk's endpoint takes different shapes; each maps to a scenario + a stack-local test.
+The *shape of the scenario* is portable; only the binding tool changes per repo.
+
+| Endpoint kind | Portable scenario shape | Grader / evidence | Watch out for |
+| --- | --- | --- | --- |
+| **Input validation** (e.g. input from a prior chunk) | Given valid/invalid input → accepts, or rejects **with the specific reason** | code; boundary + negative cases mandatory | happy-path-only; vague rejection ("just fails") |
+| **Calculation → output contract** (calc lands in a report) | Given input fixture → output **exactly matches** the golden fixture/contract | golden file / snapshot of *data* | drifting the fixture to match a bug; over-broad snapshots |
+| **UI component** | Given interaction → behaves like X (state/DOM) **and** looks like Y | component test (behavior) + visual/snapshot (appearance) | snapshot brittleness; asserting pixels not behavior |
+| **TUI interaction** | Given keystrokes/input → expected rendered frames / state transitions | TUI driver + frame/golden assertion | terminal nondeterminism (size, color, timing) |
+| **Background logic / side effect** | Given trigger → observable effect (event emitted, state written, message sent) | assert at the boundary (the emitted event/row), not internals | testing implementation instead of the observable effect |
+
+The **calculation → golden output contract** is the strongest and most portable kind:
+it's deterministic, cheap, precise, and reads as *"take this input, run the process, get
+exactly this output."* Reach for it whenever the endpoint is a value or a document. The
+fuzzier the endpoint (UI look, message tone), the more you lean on snapshots + a narrow
+LLM-judge — and the more explicit the human ratification of *what "correct" means* has to
+be, because there's no exact fixture to hide behind.
 
 ---
 
@@ -503,6 +574,15 @@ None of these hold now. Ship it bundled; keep the seam clean; extract on evidenc
 ---
 
 ## 10. Open questions
+
+**Resolved (2026-08-28) — scenario vs. test, and cross-stack portability.** The scenario
+is the durable, portable artifact; the test is its stack-local binding (§5.1). We
+standardize the *properties* of a charter test (readability approaching pseudocode; higher
+resolution than unit tests; golden contracts where precise), not a framework — because
+the stack varies per repo. The repo's own test standard is detected/ratified early as a
+charter field. This resolves the earlier "Go tests vs. Gherkin / who owns the language"
+tension: the owner reads and ratifies the **scenario**; the agent binds it to the repo's
+tooling under the readability bar.
 
 - **EARS vs. plain Given/When/Then** as the charter's acceptance-criteria notation — EARS
   is more precise but heavier; Gherkin is more readable. Possibly EARS for constraints,
