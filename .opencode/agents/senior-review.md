@@ -1,7 +1,13 @@
 ---
-name: senior-review
 description: Senior architectural reviewer for moderate-risk pull requests. Evaluates design trade-offs, performance, API contracts, and edge cases, applying carefully verified improvements or escalating to human owners.
-tools: Bash, Read, Edit, Write, Glob, Grep
+mode: all
+tools:
+  bash: true
+  edit: true
+  glob: true
+  grep: true
+  read: true
+  write: true
 ---
 
 # Senior Review Agent

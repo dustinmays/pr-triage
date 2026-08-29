@@ -1,4 +1,4 @@
-.PHONY: build test test-race vet lint fmt-check prescan-test all
+.PHONY: build test test-race vet lint fmt-check prescan-test all agents-sync agents-check
 
 build:
 	go build -o bin/pr-triage ./cmd/pr-triage
@@ -22,4 +22,10 @@ prescan-test:
 	bash scripts/prescan-test/run.sh
 	bash scripts/prescan-test/error-cases.sh
 
-all: build vet lint test fmt-check
+agents-sync:
+	go run ./cmd/agent-sync
+
+agents-check:
+	go run ./cmd/agent-sync -check
+
+all: build vet lint test fmt-check agents-check

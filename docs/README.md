@@ -20,6 +20,7 @@ single-fact markdown files with YAML front matter (`title`, `tags`,
 - [Worktrees are core](worktrees-are-core.md)
 - [Hard-fail philosophy](hard-fail-philosophy.md)
 - [Scope guardrails](scope-guardrails.md)
+- [Portable agent definitions](portable-agents.md)
 
 ## Architecture Decision Records
 

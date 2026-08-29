@@ -1,7 +1,13 @@
 ---
-name: review-agent
 description: Autonomous PR reviewer and fixer for routine pull requests. Reviews the implementation PR alongside pre-scan facts, applies safe in-scope fixes, verifies with tests, and defers risky changes to human owners.
-tools: Bash, Read, Edit, Write, Glob, Grep
+mode: all
+tools:
+  bash: true
+  edit: true
+  glob: true
+  grep: true
+  read: true
+  write: true
 ---
 
 # Routine PR Reviewer & Fixer
