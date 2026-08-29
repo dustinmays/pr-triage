@@ -528,6 +528,7 @@ compare_stack_field linter "$BASE_LINTER" "$LINTER"
 GENERATED_RE='(^|/)(go\.sum)$|(^|/)(bin|dist|vendor)/|[.]pb[.]go$|[.]generated[.]'
 
 DIFF_JSON="$(awk -F'\t' -v gre="$GENERATED_RE" '
+  BEGIN { max_changed = -1 }
   {
     ins = ($1 == "-" ? 0 : $1 + 0)
     del = ($2 == "-" ? 0 : $2 + 0)

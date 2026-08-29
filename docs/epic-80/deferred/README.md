@@ -41,12 +41,12 @@ severity (low|medium|high|n/a), area, found_by, found_in, status
 | [status-shows-internal-pr-id](./status-shows-internal-pr-id.md) | bug | low | cli, observability | `status` prints internal `runs.pr_id` instead of the GitHub PR number |
 | [schema-sql-matches-migration-regex](./schema-sql-matches-migration-regex.md) | question | low | scanner | editing `internal/db/schema.sql` also trips `migration_history_rewritten` (broad `MIGRATION_RE`) |
 | [agent-can-escape-worktree](./agent-can-escape-worktree.md) | enhancement | runtime, orchestrator, security | agent can `cd` out of its worktree into the main checkout (#116 mitigates at prompt level only; harden the boundary) |
-| [largest-file-empty-path-on-zero-line-diffs](./largest-file-empty-path.md) | question | low | scanner | `diff.largest_file` is `{path:"",changed:0}` for pure-rename / pure-binary diffs (awk `max_changed` init) |
 
 ## Resolved
 
 | Finding | Kind | Area | Resolution |
 |---------|------|------|------------|
+| [largest-file-empty-path-on-zero-line-diffs](./largest-file-empty-path.md) | question | scanner | awk `BEGIN { max_changed = -1 }` so all-zero-line diffs report a real `largest_file.path` (not `""`); `edge_binary`/`edge_rename` goldens regenerated |
 | [orchestrator-should-post-review-comment](./orchestrator-should-post-review-comment.md) | enhancement | orchestrator, agents | orchestrator now posts the agent's `Result.Summary` deterministically (marker + truncation); update-or-create idempotency is the small remaining follow-up |
 | [config-model-silently-ignored](./config-model-silently-ignored.md) | bug | config, orchestrator | #112 — init pins `--model` into `routing.routine.model` so the agent actually runs on it |
 | [report-check-name-coupling-fragile](./report-check-name-coupling-fragile.md) | enhancement | poller, orchestrator | #113 — escalate (human pinged) when gating CI is green but the report check is missing, instead of silent `ci_failed` drop |

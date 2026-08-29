@@ -10,7 +10,8 @@ related:
   - ../../../scripts/pr-prescan.sh   # DIFF_JSON awk block, max_changed/max_path
   - ../../../scripts/prescan-test/fixtures/edge_rename/golden.json
   - ../../../scripts/prescan-test/fixtures/edge_binary/golden.json
-status: open
+status: resolved
+fixed_in: chunk/opencode-adapter (largest-file-empty-path fix, 2026-08-28)
 ---
 
 ## What
@@ -46,3 +47,14 @@ should still name one of the changed files (with `changed:0`), or be `null`.
 Low priority; fold into the next scanner-semantics pass (natural fit alongside
 the other Chunk C edge-case work). Decide deliberately rather than leave it an
 awk-initialization accident.
+
+## Resolution
+
+Chose the first option: the `DIFF_JSON` awk block now initializes
+`max_changed = -1` in a `BEGIN` block, so the first changed file always becomes
+`max_path` and an all-zero-line diff yields a real changed-file path (with
+`changed:0`) instead of an empty string. The `if (files > 0)` guard is unchanged,
+so a genuinely empty diff still emits `largest_file: null`. The `edge_binary` and
+`edge_rename` goldens were regenerated (the only field that changed is
+`largest_file.path`: `""` → `assets/logo.png` / `internal/util/{helper.go =>
+helpers.go}`).
