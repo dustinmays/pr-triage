@@ -108,16 +108,22 @@ var initCmd = &cobra.Command{
 			Model:        modelName,
 		}
 
-		// Make --model concrete: pin it into routing.routine.model so the agent
-		// actually runs on it. The top-level Model field alone is NOT consulted
-		// at agent invocation (the orchestrator routes on routing.<tier>.model),
-		// so without this the flag is a silent no-op. Only touch routing when a
-		// model was explicitly provided; otherwise leave routing unset so the
-		// daemon's DefaultConfig routing applies unchanged.
-		if modelName != "" {
+		// Make --model / --runtime concrete: pin them into routing.routine so the
+		// agent actually runs on them. The top-level Model/Runtime fields are NOT
+		// consulted at agent invocation (the orchestrator routes on
+		// routing.<tier>.{runtime,model}), so without this both flags are silent
+		// no-ops. Only touch routing when a value was explicitly provided;
+		// otherwise leave routing unset so the daemon's DefaultConfig routing
+		// applies unchanged.
+		if modelName != "" || runtimeName != "" {
 			routing := config.DefaultConfig().Routing
 			r := routing["routine"]
-			r.Model = modelName
+			if modelName != "" {
+				r.Model = modelName
+			}
+			if runtimeName != "" {
+				r.Runtime = runtimeName
+			}
 			routing["routine"] = r
 			cfg.Routing = routing
 		}

@@ -1,7 +1,13 @@
 ---
-name: security-expert
 description: Security and safety auditor for high-risk pull requests. Audits authentication/authorization logic, database migration risks, sensitive credentials, and dependency execution permissions.
-tools: Bash, Read, Edit, Write, Glob, Grep
+mode: all
+tools:
+  bash: true
+  edit: true
+  glob: true
+  grep: true
+  read: true
+  write: true
 ---
 
 # Security Expert Reviewer
