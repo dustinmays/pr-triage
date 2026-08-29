@@ -128,3 +128,43 @@ func TestInitModelPinsRoutineRouting(t *testing.T) {
 		t.Fatalf("routine routing lost its runtime/agent def: %+v", cfg.Routing["routine"])
 	}
 }
+
+func TestInitRuntimePinsRoutineRouting(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	repoDir := filepath.Join(tmpDir, "my-repo")
+
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{
+		"init",
+		"--non-interactive",
+		"--owner", "dustinmays",
+		"--name", "my-repo",
+		"--base-ref", "main",
+		"--runtime", "opencode",
+		"--model", "openrouter/z-ai/glm-5.3-flash",
+		"--db-path", dbPath,
+		"--repo-dir", repoDir,
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("rootCmd.Execute() error: %v", err)
+	}
+
+	cfgPath := filepath.Join(repoDir, ".pr-triage", "config.yaml")
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load(%s) error: %v", cfgPath, err)
+	}
+	if got := cfg.Routing["routine"].Runtime; got != "opencode" {
+		t.Fatalf("routing.routine.runtime = %q, want %q", got, "opencode")
+	}
+	if got := cfg.Routing["routine"].Model; got != "openrouter/z-ai/glm-5.3-flash" {
+		t.Fatalf("routing.routine.model = %q, want %q", got, "openrouter/z-ai/glm-5.3-flash")
+	}
+	// The routine routing entry must stay otherwise intact (agent def).
+	if cfg.Routing["routine"].AgentDef != "review-agent" {
+		t.Fatalf("routine routing lost its agent def: %+v", cfg.Routing["routine"])
+	}
+}

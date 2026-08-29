@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -21,6 +22,19 @@ import (
 	"github.com/dustinmays/pr-triage/internal/runtime"
 	_ "github.com/dustinmays/pr-triage/internal/runtime/claudecode"
 )
+
+// testHeadSHA returns the real HEAD SHA of the repo containing these tests.
+// Orchestrator runs create a git worktree at the event's head SHA, so tests
+// that reach worktree creation must use a reference that resolves; fake SHAs
+// would now hard-fail to escalation instead of being silently swallowed.
+func testHeadSHA(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("git", "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
 
 type mockGHClient struct {
 	mu           sync.Mutex
@@ -114,6 +128,38 @@ func initFakeRuntime() {
 	})
 }
 
+// failingMockRuntime simulates a runtime adapter that cannot execute at all
+// (e.g. the runtime binary is missing, or the model was rejected before launch).
+type failingMockRuntime struct {
+	name string
+}
+
+func (f *failingMockRuntime) Name() string { return f.name }
+
+func (f *failingMockRuntime) Run(ctx context.Context, inv runtime.Invocation, logFile io.Writer) (int, error) {
+	_, _ = io.WriteString(logFile, "boom: runtime not available\n")
+	return -1, errors.New("boom: runtime not available")
+}
+
+func (f *failingMockRuntime) ParseResult(log io.Reader) (*runtime.Result, error) {
+	return nil, errors.New("no result payload in log")
+}
+
+func (f *failingMockRuntime) ClassifyOutcome(res *runtime.Result, exitCode int) runtime.Outcome {
+	return runtime.OutcomeFailed
+}
+
+var (
+	registerFailingOnce sync.Once
+	failRT              = &failingMockRuntime{name: "fail-mock-rt"}
+)
+
+func initFailingRuntime() {
+	registerFailingOnce.Do(func() {
+		runtime.Register(failRT)
+	})
+}
+
 func TestOrchestrator_HandleReportReady_ValidAndDone(t *testing.T) {
 	initFakeRuntime()
 
@@ -175,7 +221,7 @@ routing:
 	event := poller.ReportReadyEvent{
 		Repo:       *repo,
 		PRNumber:   42,
-		HeadSHA:    "sha-valid-42",
+		HeadSHA:    testHeadSHA(t),
 		CheckRunID: 100,
 	}
 
@@ -215,6 +261,114 @@ routing:
 	}
 	if !strings.Contains(posted, "Automated review: all checks pass. LGTM.") {
 		t.Errorf("review comment missing agent summary: %q", posted)
+	}
+}
+
+func TestOrchestrator_HandleReportReady_RunFailureEscalates(t *testing.T) {
+	initFailingRuntime()
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer func() { _ = database.Close() }()
+
+	store := db.NewStore(database)
+
+	// Create custom config mapping to fail-mock-rt, a runtime that cannot execute.
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	cfgContent := `
+signal_tiers:
+  default_tier: routine
+  rules: []
+routing:
+  routine:
+    runtime: fail-mock-rt
+    model: test-model
+    agent_def: test-agent
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	repo, err := store.UpsertRepo(&db.Repo{
+		Owner:        "dustinmays",
+		Name:         "pr-triage",
+		BaseRef:      "main",
+		PollInterval: "5m",
+		ConfigPath:   cfgPath,
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepo failed: %v", err)
+	}
+
+	validReport, err := os.ReadFile(filepath.Join("..", "..", "testdata", "reports", "valid.json"))
+	if err != nil {
+		t.Fatalf("read valid.json: %v", err)
+	}
+
+	ghMock := newMockGHClient()
+	ghMock.outputs[100] = &gh.CheckRunOutput{
+		Title:   gh.Ptr("CI Report"),
+		Summary: gh.Ptr(string(validReport)),
+	}
+
+	escalator := escalate.New(store, ghMock)
+	orch := orchestrator.New(store, ghMock, escalator,
+		orchestrator.WithWorktreeDir(filepath.Join(tmpDir, "worktrees")),
+		orchestrator.WithLogDir(filepath.Join(tmpDir, "logs")),
+	)
+
+	ctx := context.Background()
+	event := poller.ReportReadyEvent{
+		Repo:       *repo,
+		PRNumber:   42,
+		HeadSHA:    testHeadSHA(t),
+		CheckRunID: 100,
+	}
+
+	// Escalation is a normal, handled outcome — the function must not surface an error.
+	if err := orch.HandleReportReady(ctx, event); err != nil {
+		t.Fatalf("HandleReportReady failed: %v", err)
+	}
+
+	// Verify escalation: label + comment, asserted the same way as the
+	// malformed-report escalation test.
+	if len(ghMock.addedLabels) != 1 || ghMock.addedLabels[0] != escalate.DefaultEscalationLabel {
+		t.Errorf("expected escalation label applied, got %v", ghMock.addedLabels)
+	}
+	if len(ghMock.createdPosts) != 1 {
+		t.Fatalf("expected 1 escalation comment, got %d", len(ghMock.createdPosts))
+	}
+	body := ghMock.createdPosts[0]
+	for _, want := range []string{"fail-mock-rt", "boom: runtime not available"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("escalation comment missing %q; got:\n%s", want, body)
+		}
+	}
+
+	// The escalation is the last writer of PR state, so it ends "escalated"
+	// (same as the other hard-fail escalation tests) — but the agent run row
+	// itself must be recorded as failed with the real stop reason.
+	pr, err := store.GetPRState(repo.ID, 42)
+	if err != nil {
+		t.Fatalf("GetPRState failed: %v", err)
+	}
+	if pr.State != "escalated" {
+		t.Errorf("pr.State = %q, want 'escalated'", pr.State)
+	}
+
+	failedRuns, err := store.RunsInState("failed")
+	if err != nil {
+		t.Fatalf("RunsInState failed: %v", err)
+	}
+	if len(failedRuns) != 1 {
+		t.Fatalf("expected 1 failed run, got %d", len(failedRuns))
+	}
+	if !strings.Contains(failedRuns[0].StopReason, "failed to execute") {
+		t.Errorf("run stop_reason = %q, want it to name the runtime execution failure", failedRuns[0].StopReason)
 	}
 }
 
@@ -321,17 +475,18 @@ routing:
 		orchestrator.WithLogDir(filepath.Join(tmpDir, "logs")),
 	)
 
+	headSHA := testHeadSHA(t)
 	eventCh := make(chan poller.ReportReadyEvent, 2)
 	eventCh <- poller.ReportReadyEvent{
 		Repo:       *repo,
 		PRNumber:   101,
-		HeadSHA:    "sha-101",
+		HeadSHA:    headSHA,
 		CheckRunID: 301,
 	}
 	eventCh <- poller.ReportReadyEvent{
 		Repo:       *repo,
 		PRNumber:   102,
-		HeadSHA:    "sha-102",
+		HeadSHA:    headSHA,
 		CheckRunID: 302,
 	}
 	close(eventCh)
@@ -593,7 +748,7 @@ func TestOrchestrator_Override_FullWaiver_RunsAgent(t *testing.T) {
 	}
 
 	const prNum = 94
-	const headSHA = "sha-highrisk"
+	headSHA := testHeadSHA(t)
 	// The PR must exist in state so the override can be recorded/consulted.
 	if _, err := store.UpsertPRState(repo.ID, prNum, headSHA, nil, "escalated"); err != nil {
 		t.Fatalf("UpsertPRState: %v", err)
