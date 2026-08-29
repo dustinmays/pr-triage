@@ -8,9 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
-	"syscall"
 
 	"github.com/dustinmays/pr-triage/internal/runtime"
 )
@@ -51,64 +49,47 @@ func (a *Adapter) BuildArgs(inv runtime.Invocation) []string {
 	return args
 }
 
+// Capabilities declares what this adapter enforces and how it reports cost.
+// OpenCode reports an authoritative per-step cost but has no --max-turns flag,
+// so it does not enforce turns; it requires provider/model form.
+func (a *Adapter) Capabilities() runtime.Capabilities {
+	return runtime.Capabilities{
+		CostBasis:       runtime.CostBasisExact,
+		EnforcesTimeout: true,
+		EnforcesTurns:   false,
+		EnforcesBudget:  false,
+		ModelForm:       runtime.ModelFormProviderSlashModel,
+		AuthModel:       "opencode auth (provider credentials in OpenCode's own config), frozen at daemon start",
+	}
+}
+
+// requireProviderSlashModel rejects a slash-less model before launch. OpenCode
+// silently drops a model with no provider prefix, so validating here turns a
+// silent misroute into a loud pre-launch failure.
+func requireProviderSlashModel(inv runtime.Invocation) error {
+	if inv.Model != "" && !strings.Contains(inv.Model, "/") {
+		return fmt.Errorf("opencode: model %q must be in provider/model form", inv.Model)
+	}
+	return nil
+}
+
 // Run executes a single agent invocation using OpenCode CLI, writing raw
-// output to logFile.
+// output to logFile. The subprocess lifecycle (timeout, SIGTERM cancel, PID
+// callback, exit-code unwrap) is handled by runtime.ExecRun.
 //
 // Note: OpenCode has no --max-turns flag, so Limits.MaxTurns is not enforced
 // here; the caller is responsible for that limit. Timeout IS enforced via
 // context + SIGTERM.
 func (a *Adapter) Run(ctx context.Context, inv runtime.Invocation, logFile io.Writer) (int, error) {
-	if inv.Model != "" && !strings.Contains(inv.Model, "/") {
-		return -1, fmt.Errorf("opencode: model %q must be in provider/model form", inv.Model)
-	}
-
-	if inv.Limits.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, inv.Limits.Timeout)
-		defer cancel()
-	}
-
 	bin := a.Binary
 	if bin == "" {
 		bin = defaultBin
 	}
-
-	args := a.BuildArgs(inv)
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			return cmd.Process.Signal(syscall.SIGTERM)
-		}
-		return nil
-	}
-
-	if inv.Workdir != "" {
-		cmd.Dir = inv.Workdir
-	}
-
-	if logFile != nil {
-		cmd.Stdout = logFile
-		cmd.Stderr = logFile
-	}
-
-	if err := cmd.Start(); err != nil {
-		return -1, err
-	}
-
-	if inv.PIDCallback != nil && cmd.Process != nil {
-		inv.PIDCallback(cmd.Process.Pid)
-	}
-
-	err := cmd.Wait()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return exitErr.ExitCode(), nil
-		}
-		return -1, err
-	}
-
-	return 0, nil
+	return runtime.ExecRun(ctx, inv, logFile, runtime.ExecSpec{
+		Binary:   bin,
+		Args:     a.BuildArgs(inv),
+		PreCheck: requireProviderSlashModel,
+	})
 }
 
 type streamEvent struct {

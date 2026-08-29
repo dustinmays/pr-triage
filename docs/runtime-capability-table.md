@@ -23,3 +23,11 @@ discovering differences live by probing:
 Rule of thumb: never advertise a limit (timeout, tool allowlist, budget
 cap) that a given adapter doesn't actually enforce — enforce it or don't
 claim it.
+
+As of [[0009-runtime-adapter-kit]] these facts are also declared **in code**
+via `runtime.Capabilities` (the optional `CapabilityReporter` interface):
+cost basis, which limits the adapter enforces, model form, and auth model.
+`pr-triage runtime list` prints them, and a conformance test asserts the
+declared cost basis matches what `ParseResult` actually produces — so this
+table and the code cannot silently drift. This prose remains the narrative
+reference; the struct is the enforced source of truth.

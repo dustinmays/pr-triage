@@ -16,6 +16,7 @@ single-fact markdown files with YAML front matter (`title`, `tags`,
 - [Config resolve-once](config-resolve-once.md)
 - [Runtime capability table](runtime-capability-table.md)
 - [OpenCode runtime](opencode-runtime.md)
+- [Adding a runtime](adding-a-runtime.md)
 - [Persistence discipline](persistence-discipline.md)
 - [GitHub dedup](github-dedup.md)
 - [Worktrees are core](worktrees-are-core.md)
