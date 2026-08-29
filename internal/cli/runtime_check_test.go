@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -13,16 +14,27 @@ import (
 // fakeRuntime is a minimal in-memory AgentRuntime for exercising the doctor
 // command without launching a real subprocess.
 type fakeRuntime struct {
-	name    string
-	log     string // written to logFile by Run
-	runErr  error  // returned by Run (simulates a launch failure)
-	outcome runtime.Outcome
-	caps    *runtime.Capabilities
+	name            string
+	log             string // written to logFile by Run
+	runErr          error  // returned by Run (simulates a launch failure)
+	outcome         runtime.Outcome
+	caps            *runtime.Capabilities
+	probeGitWorkdir bool
+	sawWorkdir      string
+	isGitRepo       bool
 }
 
 func (f *fakeRuntime) Name() string { return f.name }
 
-func (f *fakeRuntime) Run(_ context.Context, _ runtime.Invocation, logFile io.Writer) (int, error) {
+func (f *fakeRuntime) Run(_ context.Context, inv runtime.Invocation, logFile io.Writer) (int, error) {
+	if f.probeGitWorkdir {
+		f.sawWorkdir = inv.Workdir
+		if inv.Workdir != "" {
+			cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
+			cmd.Dir = inv.Workdir
+			f.isGitRepo = cmd.Run() == nil
+		}
+	}
 	if f.runErr != nil {
 		return -1, f.runErr
 	}
@@ -114,5 +126,23 @@ func TestRuntimeCheck_ProviderSlashModelPreflight(t *testing.T) {
 	}
 	if !strings.Contains(out, "provider/model form") {
 		t.Errorf("expected model-form failure message:\n%s", out)
+	}
+}
+
+// Given the runtime check doctor command probing a runtime, when it prepares a temp workdir, it initializes it as a Git repository.
+// This satisfies the prerequisite of runtimes like Codex that require execution inside a valid Git worktree.
+func TestRuntimeCheckInitializesProbeWorkdirAsGitRepository(t *testing.T) {
+	fr := &fakeRuntime{name: "fake-git-probe", log: "OK", probeGitWorkdir: true}
+	runtime.Register(fr)
+
+	out, err := runDoctor(t, "fake-git-probe")
+	if err != nil {
+		t.Fatalf("runDoctor failed unexpectedly: %v\noutput:\n%s", err, out)
+	}
+	if fr.sawWorkdir == "" {
+		t.Fatal("doctor ran without providing a workdir to Run")
+	}
+	if !fr.isGitRepo {
+		t.Fatalf("runtime doctor probe workdir %q is not a Git repository; codex exec requires a Git repo and the generic doctor must git-init the temp workdir before Run", fr.sawWorkdir)
 	}
 }

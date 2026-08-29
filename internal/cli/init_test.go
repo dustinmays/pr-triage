@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/dustinmays/pr-triage/internal/config"
 	"github.com/dustinmays/pr-triage/internal/db"
 )
@@ -166,5 +168,71 @@ func TestInitRuntimePinsRoutineRouting(t *testing.T) {
 	// The routine routing entry must stay otherwise intact (agent def).
 	if cfg.Routing["routine"].AgentDef != "review-agent" {
 		t.Fatalf("routine routing lost its agent def: %+v", cfg.Routing["routine"])
+	}
+}
+
+// Given `pr-triage init` invoked with `--runtime codex` and `--model gpt-5.6-sol`, when inspecting saved config and `config show` output, both reflect the pinned Codex routing.
+// This verifies end-to-end CLI initialization and effective configuration display for the Codex runtime.
+func TestInitRuntimePinsCodexRoutineRoutingAndConfigShow(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	repoDir := filepath.Join(tmpDir, "my-repo")
+
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{
+		"init",
+		"--non-interactive",
+		"--owner", "dustinmays",
+		"--name", "my-repo",
+		"--base-ref", "main",
+		"--runtime", "codex",
+		"--model", "gpt-5.6-sol",
+		"--db-path", dbPath,
+		"--repo-dir", repoDir,
+	})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("rootCmd.Execute() error: %v", err)
+	}
+
+	cfgPath := filepath.Join(repoDir, ".pr-triage", "config.yaml")
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("config.Load(%s) error: %v", cfgPath, err)
+	}
+	if got := cfg.Routing["routine"].Runtime; got != "codex" {
+		t.Fatalf("routing.routine.runtime = %q, want %q", got, "codex")
+	}
+	if got := cfg.Routing["routine"].Model; got != "gpt-5.6-sol" {
+		t.Fatalf("routing.routine.model = %q, want %q", got, "gpt-5.6-sol")
+	}
+	if cfg.Routing["routine"].AgentDef != "review-agent" {
+		t.Fatalf("routine routing lost its agent def: %+v", cfg.Routing["routine"])
+	}
+
+	// Invoke config show against the repo directory and assert the effective config
+	buf.Reset()
+	rootCmd.SetArgs([]string{"config", "show", "--repo-dir", repoDir})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("config show Execute() error: %v", err)
+	}
+
+	var shownCfg config.Config
+	if err := yaml.Unmarshal(buf.Bytes(), &shownCfg); err != nil {
+		t.Fatalf("config show output is not valid YAML: %v\n---\n%s", err, buf.String())
+	}
+	shownRoutine, ok := shownCfg.Routing["routine"]
+	if !ok {
+		t.Fatalf("shown effective config missing routing.routine; got: %+v", shownCfg.Routing)
+	}
+	if shownRoutine.Runtime != "codex" {
+		t.Fatalf("shown routing.routine.runtime = %q, want %q", shownRoutine.Runtime, "codex")
+	}
+	if shownRoutine.Model != "gpt-5.6-sol" {
+		t.Fatalf("shown routing.routine.model = %q, want %q", shownRoutine.Model, "gpt-5.6-sol")
+	}
+	if shownRoutine.AgentDef != "review-agent" {
+		t.Fatalf("shown routing.routine.agent_def = %q, want %q", shownRoutine.AgentDef, "review-agent")
 	}
 }
