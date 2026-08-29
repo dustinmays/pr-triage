@@ -204,10 +204,19 @@ recommendation in §6.
 
 ## 4. The concept: a "Chunk Charter + Behavioral Contract" front-of-loop
 
-A kickoff flow (command + interactive agent + view) that, for a chunk, produces and
-maintains three linked artifacts and wires them into the existing reactive loop.
+A kickoff flow (a **human checklist** + interactive agent + view) that, for a chunk,
+produces and maintains the artifacts below and wires them into the existing reactive
+loop. The human works *from the checklist, with the agent* — the checklist is the
+human's spine; the agent assists at each step and the human ratifies.
 
 ### 4.1 Artifacts (what gets written down)
+
+0. **Human kickoff checklist** — the human-facing spine of the flow: a short, ordered
+   list of decisions the owner must make/ratify to open a chunk (charter drafted →
+   grounding reviewed → charter ratified → behavioral contract ratified → tests confirmed
+   red → implement). The agent drives each item; the human checks it off. It exists so
+   the human always knows *where they are* and *what decision is theirs next* — attention
+   routing applied to kickoff itself, not just review.
 
 1. **Chunk Charter / Contract** — the spec, in the SDD six-element shape: outcomes,
    scope boundaries (what is explicitly *out*), constraints, prior decisions, task
@@ -230,14 +239,36 @@ pr-triage *reads* them; it authors them collaboratively but the human ratifies.
 
 ### 4.2 Agents (who does what — and the separation that matters)
 
-- **Charter agent** — interviews the owner (fewer questions when the repo/issue is rich,
-  more when it's thin — exactly the `chunk-setup-agent` heuristic), inspects the repo and
-  parent issue, drafts the charter. *Assists; the human ratifies.*
-- **Behavioral-test author agent** — turns the ratified charter into Given/When/Then
-  scenarios + the eval set, under explicit BDD guardrails (one behavior/scenario,
-  testable Then, balanced positive/negative cases). *Assists; the human ratifies.*
-- **Implementer agent** — does the work against the contract (this is the "implementer"
-  the owner already names).
+- **Charter / planning agent** — interviews the owner (fewer questions when the
+  repo/issue is rich, more when it's thin — exactly the `chunk-setup-agent` heuristic),
+  drafts the charter, and helps **splash out the issues** for the chunk. Its first job
+  is **grounding**: before proposing anything, it reads the knowledge base and points the
+  charter at the *specific prior decisions that bind this work* — exactly the way this
+  spike's Codex example cited [[cost-basis-honesty]], [[hard-fail-philosophy]], and the
+  capability table as constraints. Concretely it should surface:
+    - **Impacted ADRs** — which accepted decisions this chunk touches or must not violate
+      (the highest-value grounding; an ADR conflict is a design smell to raise *now*).
+    - **Relevant domain / knowledge-base facts** — the single-fact docs under `docs/`
+      that constrain this area (cost basis, result-shape normalization, dedup, etc.).
+    - **Current build state, if resuming** — `STATE.md` and `deferred/` for the chunk.
+      (Less important when *starting* a chunk; the domain facts and ADRs matter more.)
+  The output isn't just a charter — it's a charter whose "constraints" and "prior
+  decisions" sections are *linked to real files*, so the contract is enforceable and the
+  human can see what it rests on. *Assists; the human ratifies.*
+- **TDD behavioral-testing agent** — the heart of the flow. Takes the ratified charter's
+  behavioral contract and **implements the tests, then shows them all failing (red)
+  before any implementation exists.** Two non-negotiables:
+    1. **Red-first** — the human sees the tests fail for the right reason (behavior
+       absent), confirming the tests actually encode the intended behavior before a line
+       of implementation is written. Red that turns green *is the evidence*.
+    2. **Human-readable** — good test names, clear assertions, one behavior per test, and
+       expectations a human can read at a glance (`expects X … does not do Y`). The human
+       reviews the *tests themselves* as the ratification act; if the test is unreadable,
+       it can't serve as the contract. (Guard against the field's failure mode: vague
+       Then-steps, multi-behavior tests, happy-path-only.)
+  *Assists; the human ratifies the red tests before implementation begins.*
+- **Implementer agent** — does the work against the now-ratified, red contract (this is
+  the "implementer" the owner already names). Its target is simply: make the red go green.
 - **Tester/verifier agent** — runs the behavioral contract + evals **locally, before a
   PR exists**, and returns a typed verdict with evidence. **Must be a different agent
   than the implementer** (adversarial validation, §2.4). Its verdict is what decides
@@ -251,9 +282,10 @@ surfaces only what needs a human.
 
 ```
         ┌──────────────── front-of-loop (new) ─────────────────┐
-Issue → Charter agent → [human ratifies charter]                │
-                      → Behavioral-test author → [human ratifies contract]
-                      → Implementer agent → Tester agent (≠ implementer)
+Issue → Charter/planning agent → [human ratifies charter]       │
+        (grounds in impacted ADRs + domain facts)               │
+      → TDD agent writes tests → all RED → [human ratifies red tests]
+      → Implementer makes them GREEN → Tester agent (≠ implementer)
                             │                     │
                             │              typed verdict + evidence
                             ▼                     ▼  (pass)
@@ -313,6 +345,22 @@ reviewer view does. Apply ADR-0007 directly:
   a stream of micro-approvals. Everything between them runs on-the-loop.
 - **Don't skew the read.** Present balanced scenarios (behaviors that *should* and
   *shouldn't* happen), so ratification isn't rubber-stamping a one-sided happy path.
+- **The human checklist is the attention spine.** The kickoff checklist (§4.1, item 0)
+  is itself an attention-routing device: it shows the human exactly where they are and
+  which decision is theirs next, so kickoff never feels like an open-ended interrogation.
+
+### 6.1 UI north star: watching red turn green
+
+The behavioral contract makes a chunk's progress *visible as state*, which is the seed of
+a much better UI than a diff. A future higher-def TUI/GUI could show a chunk as its list
+of behavioral scenarios and **render them going red → green** as the implementer works —
+the human watches *behavior being satisfied*, not lines changing. This is the natural,
+motivating surface the daemon's event stream already makes possible (the same
+`internal/events` channel every runtime emits through). It's explicitly *later* work —
+the plumbing (contract-as-state + events) must be right first — but it's the north star
+worth designing the state model toward now: **a chunk is a set of behaviors, each with a
+red/green status and its evidence.** Keep that shape in the state layer and the UI comes
+almost for free.
 
 The whole design goal: convert one expensive, late attention event (reviewing a drifted
 PR) into one cheap, early one (ratifying a charter), and let determinism carry the
