@@ -394,6 +394,30 @@ fuzzier the endpoint (UI look, message tone), the more you lean on snapshots + a
 LLM-judge — and the more explicit the human ratification of *what "correct" means* has to
 be, because there's no exact fixture to hide behind.
 
+### 5.3 Governing golden contracts: not frozen, but escalation-triggering
+
+Golden fixtures and scenario tests have one specific failure mode: an agent told to "make
+the red go green" can cheat by **editing the fixture to match a bug** instead of fixing
+the code — the builder-grading-itself trap (§2.4) in disguise.
+
+The wrong fix is to *freeze* fixtures. Contracts legitimately change as we learn things; a
+fixture frozen in time becomes a lie the moment the spec evolves. The right fix uses
+pr-triage's **own mechanism on itself**: once ratified, a chunk's golden fixtures and
+scenario tests are registered as a **high-tier deterministic signal** (a watched path in
+the pre-scan `signal_tiers` — see [[per-chunk-triage-config]]). Then:
+
+- **An AI may change a ratified contract** — sometimes it should, at the human's behest,
+  as new information comes in.
+- **But any diff to a ratified fixture/scenario escalates to the human** on the PR-triage
+  side, every time, deterministically. The change isn't blocked; it's *surfaced* — the
+  human decides whether the contract genuinely moved or a bug is being laundered into the
+  oracle.
+
+This makes the fixture a **true contract that can still evolve**: durable enough to catch
+laundering, live enough to update with agreement. It's also clean dogfooding — the
+proactive artifact (the contract) is protected by the reactive mechanism (deterministic
+signal → escalate → human decides), with no new machinery. The change *is* the signal.
+
 ---
 
 ## 6. Attention design for the front-of-loop (so it doesn't become overwhelm)
