@@ -633,9 +633,23 @@ func (o *Orchestrator) executeRun(
 	runRecord.LogPath = logPath
 	_ = o.store.UpdateRun(runRecord)
 
-	// Create git worktree
+	// Create git worktree. If this fails, the agent would otherwise run against a
+	// missing/wrong directory and silently produce garbage; escalate instead.
 	localRepoPath, _ := filepath.Abs(".")
-	_ = git.WorktreeAdd(ctx, localRepoPath, worktreePath, event.HeadSHA)
+	if wtErr := git.WorktreeAdd(ctx, localRepoPath, worktreePath, event.HeadSHA); wtErr != nil {
+		runRecord.Status = "failed"
+		runRecord.StopReason = fmt.Sprintf("failed to create git worktree at %s: %v", worktreePath, wtErr)
+		_ = o.store.UpdateRun(runRecord)
+		_, _ = o.store.UpsertPRState(event.Repo.ID, event.PRNumber, event.HeadSHA, &event.CheckRunID, poller.StateCIFailed)
+		return o.escalator.Escalate(ctx, escalate.Request{
+			Repo:       event.Repo,
+			PRNumber:   event.PRNumber,
+			HeadSHA:    event.HeadSHA,
+			Reason:     runRecord.StopReason,
+			CIRunID:    &event.CheckRunID,
+			GitHubUser: cfg.GitHubUser,
+		})
+	}
 	defer func() {
 		_ = git.WorktreeRemove(ctx, localRepoPath, worktreePath)
 	}()
@@ -716,7 +730,23 @@ func (o *Orchestrator) executeRun(
 		// Check for fixes made in worktree
 		if hasChanges, _ := git.HasChanges(ctx, worktreePath); hasChanges {
 			prBranch := rep.PR.Head
-			_, _ = git.CommitAndPush(ctx, worktreePath, prBranch, fmt.Sprintf("fix: automated triage fix for PR #%d", event.PRNumber))
+			if _, pushErr := git.CommitAndPush(ctx, worktreePath, prBranch, fmt.Sprintf("fix: automated triage fix for PR #%d", event.PRNumber)); pushErr != nil {
+				// The agent produced fixes but they could not be delivered to the PR
+				// branch. Do not report "done" as if the fix landed — record the real
+				// reason and escalate so a human can recover the work.
+				runRecord.Status = "failed"
+				runRecord.StopReason = fmt.Sprintf("agent made fixes but push to %s failed: %v", prBranch, pushErr)
+				_ = o.store.UpdateRun(runRecord)
+				_, _ = o.store.UpsertPRState(event.Repo.ID, event.PRNumber, event.HeadSHA, &event.CheckRunID, poller.StateCIFailed)
+				return o.escalator.Escalate(ctx, escalate.Request{
+					Repo:       event.Repo,
+					PRNumber:   event.PRNumber,
+					HeadSHA:    event.HeadSHA,
+					Reason:     runRecord.StopReason,
+					CIRunID:    &event.CheckRunID,
+					GitHubUser: cfg.GitHubUser,
+				})
+			}
 		}
 
 		runRecord.Status = "done"
@@ -732,10 +762,30 @@ func (o *Orchestrator) executeRun(
 		return nil
 	}
 
-	// Execution failed or timed out
+	// Execution failed or timed out.
 	runRecord.Status = "failed"
 	if outcome == runtime.OutcomeTimeout {
 		runRecord.Status = "timeout"
+	}
+	// A non-nil runErr means the runtime could not be executed at all (e.g. the
+	// runtime binary is missing, or the model was rejected before launch). That is
+	// an environment/config fault a human must fix, not a transient PR failure, so
+	// escalate instead of silently dropping the PR. A timeout is a normal agent
+	// outcome and is not escalated here.
+	if runErr != nil && outcome != runtime.OutcomeTimeout {
+		if strings.TrimSpace(runRecord.StopReason) == "" || runRecord.StopReason == "failed to parse agent log" {
+			runRecord.StopReason = fmt.Sprintf("agent runtime %q failed to execute: %v", routing.Runtime, runErr)
+		}
+		_ = o.store.UpdateRun(runRecord)
+		_, _ = o.store.UpsertPRState(event.Repo.ID, event.PRNumber, event.HeadSHA, &event.CheckRunID, poller.StateCIFailed)
+		return o.escalator.Escalate(ctx, escalate.Request{
+			Repo:       event.Repo,
+			PRNumber:   event.PRNumber,
+			HeadSHA:    event.HeadSHA,
+			Reason:     runRecord.StopReason,
+			CIRunID:    &event.CheckRunID,
+			GitHubUser: cfg.GitHubUser,
+		})
 	}
 	_ = o.store.UpdateRun(runRecord)
 	_, _ = o.store.UpsertPRState(event.Repo.ID, event.PRNumber, event.HeadSHA, &event.CheckRunID, poller.StateCIFailed)
