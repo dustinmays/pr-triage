@@ -11,7 +11,7 @@ related:
   - ../../../scripts/prescan-test/fixtures/edge_rename/golden.json
   - ../../../scripts/prescan-test/fixtures/edge_binary/golden.json
 status: resolved
-fixed_in: chunk/opencode-adapter (largest-file-empty-path fix, 2026-08-28)
+fixed_in: "#126 — DIFF_JSON awk `BEGIN { max_changed = -1 }` so all-zero-line diffs report a real `largest_file.path` (edge_binary/edge_rename goldens regenerated)"
 ---
 
 ## What
