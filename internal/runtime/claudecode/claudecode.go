@@ -8,10 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/dustinmays/pr-triage/internal/runtime"
 )
@@ -65,56 +63,32 @@ func (a *Adapter) BuildArgs(inv runtime.Invocation) []string {
 	return args
 }
 
-// Run executes a single agent invocation using Claude Code CLI, writing
-// raw output to logFile.
-func (a *Adapter) Run(ctx context.Context, inv runtime.Invocation, logFile io.Writer) (int, error) {
-	if inv.Limits.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, inv.Limits.Timeout)
-		defer cancel()
+// Capabilities declares what this adapter enforces and how it reports cost.
+// Claude Code reports an authoritative terminal cost and enforces its own
+// max-turns via the --max-turns flag; it takes a plain model name.
+func (a *Adapter) Capabilities() runtime.Capabilities {
+	return runtime.Capabilities{
+		CostBasis:       runtime.CostBasisExact,
+		EnforcesTimeout: true,
+		EnforcesTurns:   true,
+		EnforcesBudget:  false,
+		ModelForm:       runtime.ModelFormPlain,
+		AuthModel:       "claude CLI login / ANTHROPIC_API_KEY in the daemon's environment",
 	}
+}
 
+// Run executes a single agent invocation using Claude Code CLI, writing
+// raw output to logFile. The subprocess lifecycle (timeout, SIGTERM cancel,
+// PID callback, exit-code unwrap) is handled by runtime.ExecRun.
+func (a *Adapter) Run(ctx context.Context, inv runtime.Invocation, logFile io.Writer) (int, error) {
 	bin := a.Binary
 	if bin == "" {
 		bin = defaultBin
 	}
-
-	args := a.BuildArgs(inv)
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			return cmd.Process.Signal(syscall.SIGTERM)
-		}
-		return nil
-	}
-
-	if inv.Workdir != "" {
-		cmd.Dir = inv.Workdir
-	}
-
-	if logFile != nil {
-		cmd.Stdout = logFile
-		cmd.Stderr = logFile
-	}
-
-	if err := cmd.Start(); err != nil {
-		return -1, err
-	}
-
-	if inv.PIDCallback != nil && cmd.Process != nil {
-		inv.PIDCallback(cmd.Process.Pid)
-	}
-
-	err := cmd.Wait()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return exitErr.ExitCode(), nil
-		}
-		return -1, err
-	}
-
-	return 0, nil
+	return runtime.ExecRun(ctx, inv, logFile, runtime.ExecSpec{
+		Binary: bin,
+		Args:   a.BuildArgs(inv),
+	})
 }
 
 type streamEvent struct {

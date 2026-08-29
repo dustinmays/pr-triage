@@ -19,6 +19,7 @@ This table is the source of truth for ADR status. Keep it in sync when an ADR is
 | [0006](0006-local-state-is-source-of-truth.md) | Local app state is the source of truth; GitHub is a projection | Accepted |
 | [0007](0007-manage-human-attention-ai-assists-human-decides.md) | Manage human attention: deterministic-first, AI assists, the human decides | Accepted |
 | [0008](0008-portable-agent-definitions.md) | Portable agent definitions: one neutral source, generated per tool | Locked |
+| [0009](0009-runtime-adapter-kit.md) | Runtime adapter kit: shared exec, declared capabilities, conformance harness, doctor | Expected |
 
 Status legend: **Locked** — signed off, immutable. **Expected** — pending finalization (note who signs off). **Accepted** — older ADRs merged under the prior status model; treat as Locked. **Template** — the scaffold, not a decision. **Superseded by NNNN** — replaced; keep the file, add the pointer.
 
