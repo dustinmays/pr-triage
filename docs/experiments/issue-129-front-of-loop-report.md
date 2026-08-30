@@ -8,21 +8,23 @@ implementation → independent verification → reactive-review experiment. Entr
 ## A. Header
 
 - **Chunk / issue:** Codex runtime adapter / #129
-- **PR(s):** #133 — `feature/codex-runtime-adapter` → `main`
-- **Dates:** started 2026-08-29
+- **PR(s):** #133 — implementation; #134 — disposable full-diff Codex runtime dogfood
+- **Dates:** started 2026-08-29; runtime dogfood 2026-08-30
 - **Implementation orchestration runtime / model:** Codex session (exact host model ID not surfaced)
 - **Delegated RED-test runtime / model:** OpenCode 1.18.23 / `openrouter/z-ai/glm-5.3-flash` (interrupted session `ses_fb0917065ffe2Hsf0SotS5xFwn`) → `openrouter/google/gemini-3.7-flash`
 - **Delegated production implementation runtime / model:** OpenCode 1.18.23 / `openrouter/google/gemini-3.7-flash` (`ses_fb05e14f0ffeiW5anBVgJUWjJo`)
 - **Reactive triage:** deterministic `chunk_completion` route automatically escalated to the human; no review runtime/model was invoked
 - **Reactive-review runtime / model:** pending separate non-Codex pass
-- **Outcome:** in progress — charter and behavioral contract ratified; production implementation reached GREEN in one attempt with protected contracts unchanged; PR #133 is open with CI GREEN; reactive triage correctly escalated it; smoke and non-Codex review pending
+- **Codex runtime smoke:** PR #134 / `codex` / `gpt-5.6-sol`; completed in ~6m06s, one turn, estimated cost $1.3591696; proved auth, pre-scan readability, workspace writes, push, parsing, metrics, and review-comment delivery
+- **Outcome:** in progress — charter and original 32-test behavioral contract ratified; production implementation reached GREEN in one attempt; PR #133 is open; reactive triage correctly escalated it; Codex smoke succeeded and produced one human-approved additive contract refinement; separate non-Codex review pending
 
 ## B. Scorecard
 
-- **Implementation attempts / first-pass success:** 1 / yes. The production pass added the adapter, binary registration, and doctor Git initialization; targeted contract tests and the agent's full suite passed without production rework.
-- **Rework cycles:** 0 implementation cycles. One reporting correction: the implementation agent summarized “19 adapter tests,” while deterministic inventory and execution show 32 top-level adapter tests; no code changed for this correction.
+- **Implementation attempts / first-pass success:** 1 / yes at the ratified GREEN gate. The production pass added the adapter, binary registration, and doctor Git initialization; targeted contract tests and the agent's full suite passed without implementation-stage rework.
+- **Rework cycles:** 1 post-GREEN cycle, found by Codex smoke/review: envelope writes ignored errors and short writes, allowing launch without the model metadata required for honest cost. The reviewer added two negative bindings to the existing envelope scenario and a production fix; the human explicitly approved the additive contract change. One separate reporting correction: the implementation agent summarized “19 adapter tests,” while deterministic inventory showed 32 at ratification; no code changed for that correction.
 - **Reactive triage:** 1 run / deterministic human escalation as designed. Evidence: `needs-owner-review` plus an escalation comment naming `target_kind "chunk_completion"`; no LLM reviewer was invoked.
-- Remaining scorecard fields are pending smoke and the separate non-Codex review.
+- **Runtime dogfood:** 1 run / success on `codex` + `gpt-5.6-sol`; one turn, ~6m06s, $1.3591696 estimated. The agent edited and the orchestrator pushed commit `b577eaa` to disposable PR #134.
+- Remaining scorecard fields are pending the separate non-Codex review and final synthesis.
 
 ## C. Front-of-loop process evaluation
 
@@ -57,7 +59,7 @@ pre-scan readability, and workspace writing.
 
 ### Test Suite Architecture, Envelope Schema, Pricing, and Governance
 
-- **Adapter Test Count & Coverage:** 32 tests in `internal/runtime/codex` across `capabilities_test.go` (6 tests), `parse_result_test.go` (13 tests), `run_test.go` (8 tests), `classify_test.go` (4 tests), and `conformance_test.go` (1 test), strictly enforcing one behavior per test.
+- **Adapter Test Count & Coverage:** 32 tests were ratified at Gate 2. The current suite has 34 tests in `internal/runtime/codex`: `capabilities_test.go` (6), `parse_result_test.go` (13), `run_test.go` (10), `classify_test.go` (4), and `conformance_test.go` (1). The two additions are human-approved negative bindings to the already-ratified invocation-envelope scenario.
 - **Envelope Schema:** Because Codex CLI 0.151.0 NDJSON events emit token usage but not the model identifier, the adapter writes an initial namespaced structured invocation envelope:
   `{"pr_triage_codex":{"version":1,"kind":"invocation","model":"gpt-5.6-sol"}}`
   Exact schema: root key `pr_triage_codex`, `version: 1`, `kind: "invocation"`, `model: "<string>"`.
@@ -115,9 +117,10 @@ The file-to-intent map is: `capabilities_test.go` declares honest limitations;
 golden event contract and normalized result; `classify_test.go` pins outcomes;
 `conformance_test.go` applies the shared runtime kit; and the tests under `cmd` and
 `internal/cli` pin binary registration, doctor setup, and effective config routing.
-Each of the 35 behavioral tests also has a two-line reader breadcrumb immediately
+Each of the original 35 behavioral/external-gate tests has a two-line reader breadcrumb immediately
 above it: the first line states the scenario and expected behavior; the second explains
-why that contract matters to the system or operator.
+why that contract matters to the system or operator. The two smoke-added tests follow the
+same format, bringing the current total to 37.
 
 Run the evidence in progressively smaller slices:
 
@@ -177,11 +180,13 @@ minimum durable mechanism needs both:
 1. A ratification checkpoint outside the implementer's mutable diff: ideally the
    contract commit is already on the target `chunk/*` branch; otherwise pr-triage records
    an immutable checkpoint commit/tree SHA at the ratification action.
-2. A protected-artifact manifest containing scenario IDs and the contract-test/golden
-   paths or digests. The scanner compares the checkpoint objects with PR head objects.
-   Changing a protected artifact, the manifest, or its checkpoint pointer emits a
-   `ratified_contract_changed` signal with file evidence. Protected goldens override the
-   scanner's generic `testdata/` exclusion.
+2. A protected-contract manifest containing scenario IDs plus identities/digests for each
+   ratified test body and each golden oracle. The scanner compares those checkpoint
+   objects with PR head objects. Weakening, changing, skipping, renaming, or removing an
+   existing binding—or changing a golden, the manifest, or its checkpoint pointer—emits a
+   `ratified_contract_changed` signal with evidence. Protected goldens override the
+   scanner's generic `testdata/` exclusion. File-level hashes alone are too coarse because
+   they cannot distinguish laundering from a useful additive test.
 
 That signal should map to `escalate` by default. On chunk/epic implementation PRs the
 existing escalation path applies `needs-owner-review`, and the existing
@@ -191,16 +196,26 @@ product mechanism exists, this experiment should take a separate ratified test-o
 checkpoint and manually compare all protected files against it before accepting an
 implementation or fixture change.
 
+The smoke refined the governance decision. The owner's concern is silent weakening or
+removal, not freezing learning after kickoff. A new test may be added when it traces to an
+existing ratified scenario and does not modify an existing binding; it is recorded as an
+additive contract refinement rather than blocked. A new observable requirement, a changed
+expected value/oracle, or any weakening/removal still returns to the human. In this run,
+the reviewer added two envelope-write failure tests to `run_test.go`; the manual audit
+proved zero existing ratified test lines and zero goldens changed, and the human approved
+the additions before they entered PR #133.
+
 The human-attention surface and executable-test surface must not be conflated:
 
 | Layer | Primary reviewer | Count policy | Governance |
 | --- | --- | --- | --- |
 | Charter scenarios | Human | Target about 12 at most | Human ratifies the observable must/must-not behavior |
-| Contract-test bindings and goldens | Independent TDD/verifier agents | As many as needed; 32 is acceptable here | Registered as protected artifacts; any later diff escalates |
+| Contract-test bindings and goldens | Independent TDD/verifier agents | As many as needed; 32 at ratification, 34 after smoke is acceptable here | Existing binding/golden changes escalate; traced additive bindings are recorded and allowed |
 | Unit/regression/implementation tests | Implementer and reviewer agents | Unbounded by the charter gate | May evolve normally outside the protected manifest |
 
-The current Codex suite should remain intact: its 32 adapter tests bind only nine charter
-scenarios. The usability error was presenting all 32 bindings as equal human decisions.
+The original Codex suite should remain intact: its 32 ratified adapter tests bind only nine
+charter scenarios, and the current 34-test suite adds two bindings without changing those
+32. The usability error was presenting every binding as an equal human decision.
 Future Gate 2 output should show the roughly dozen scenario cards, their RED evidence,
 and a scenario-to-test count/map; full tests remain progressive-disclosure detail.
 
@@ -302,6 +317,33 @@ useful visual cue, but the durable state must still say “expected RED at check
 the process is not dependent on GitHub or unable to distinguish expected RED from breakage.
 Neither projection should be baked into the charter/TDD contract itself.
 
+### Codex runtime smoke
+
+Disposable PR #134 presented the complete #133 diff to the routine lane while targeting
+`chunk/codex-runtime-review-base`. A first head reused #133's SHA and exposed a GitHub
+check-run identity hazard: check runs attach to commits, and `reportCheckRunID` selects the
+first check named `pr-prescan-report`; two PRs sharing one head SHA can therefore mix
+reports. An empty marker commit gave #134 a unique SHA without changing its tree.
+
+The first observation window found no run because the persisted registration still
+watched `main`, despite earlier discussion of “all PRs.” Bounded `config show` / `status`
+diagnostics surfaced that fact without reading runtime logs. After the human changed the
+registration to `chunk/**`, the daemon classified #134 as routine and invoked `codex` with
+`gpt-5.6-sol`. The run completed in about 6m06s with one runtime-local turn and estimated
+cost $1.3591696. It proved the daemon's saved auth, Codex workspace-write sandbox, ability
+to read the full pre-scan/review prompt, file editing, commit/push, JSONL parsing, cost
+accounting, and deterministic review-comment delivery.
+
+The reviewer found one PR-local issue: `Adapter.Run` ignored invocation-envelope write
+errors and short writes, yet that envelope is the only model-identity source for honest
+cost reporting. It added two negative tests and fixed the adapter, and the orchestrator
+pushed commit `b577eaa` to #134. The review comment's temporary-worktree file links became
+dead after cleanup even though the commit survived; future review output should link to
+GitHub paths/commits or omit ephemeral absolute paths. It also deferred a shared timeout
+classification issue: deadline-terminated `ExecRun` processes can be classified as
+failure rather than `OutcomeTimeout`; that cross-adapter change is not silently folded
+into #129.
+
 ## D. Deliverables to PM
 
 Pending completion.
@@ -354,3 +396,11 @@ Pending completion.
 | 2026-08-29 21:03 MDT | workflow/generalization | Human described the current two-level stack: a draft feature/chunk PR to `main` stays visibly RED while child worktree PRs merge into the feature branch and progressively make it GREEN. Kept this as a useful GitHub projection, but removed it as a presumed durable topology: AgentMinder/Trigger should own phase/checkpoint/work-item/verdict state, and the front/back contracts should remain usable with other team workflows. | instrumented: human workflow description + report correction |
 | 2026-08-29 21:05 MDT | reactive triage | After the human configured the watcher to include PRs targeting `main`, pr-triage discovered PR #133 and automatically applied `needs-owner-review` plus an escalation comment: `target_kind "chunk_completion" requires human review`. This is the expected deterministic terminal route; no review runtime was invoked. | instrumented: human report + GitHub label/comment verification |
 | 2026-08-29 21:06 MDT | durable decision | Human requested that the topology/state finding outlive the experiment report. Drafted ADR 0010: chunk lifecycle state is provider-independent and authoritative outside GitHub; PR stacks/draft CI are optional projections; expected RED is an explicit phase; multiple base selectors are a required future capability without choosing syntax or orchestration ownership here. | instrumented: human direction + ADR/index/report changes |
+| 2026-08-30 07:55 MDT | runtime dogfood setup | Opened disposable PR #134 with the complete #133 diff against `chunk/codex-runtime-review-base`, so CI/pre-scan run and target kind is `implementation` without changing the real `main` PR. | instrumented: Git refs + GitHub PR/pre-scan |
+| 2026-08-30 07:57 MDT | smoke surprise | Reusing #133's exact head SHA caused GitHub to expose both PRs' check runs on one commit; the poller selects the first named report check and cannot associate it with a PR. Added an empty marker commit solely to give #134 an isolated SHA. | instrumented: `gh pr checks` mixed output + poller code inspection |
+| 2026-08-30 08:06 MDT | configuration diagnosis | Five minutes of no result led to bounded state inspection: daemon and Codex routing were healthy, but the persisted repo registration still watched `main`, so #134 was invisible. Human changed it to `chunk/**`; no runtime transcript was needed. | instrumented: `config show`, `status --json`, human correction |
+| 2026-08-30 08:11 MDT | Codex smoke | Daemon started routine run 24 for #134 on `codex` / `gpt-5.6-sol` at unique SHA `7186aa4`; state showed `agent_running` with no early failure/escalation. | instrumented: persisted run state |
+| 2026-08-30 08:17 MDT | Codex smoke success | Run 24 completed `done` / `turn.completed` in ~6m06s, one turn, estimated cost $1.3591696. The review summary was parsed and posted; the agent edited its sandbox worktree and the orchestrator pushed automated-fix commit `b577eaa`. | instrumented: run state + GitHub comment/commit |
+| 2026-08-30 08:18 MDT | reactive finding | Codex found that envelope write errors/short writes were ignored, allowing launch without required model metadata. It added two negative tests and a fail-before-launch fix. It separately deferred cross-adapter timeout misclassification; its review comment also contained ephemeral absolute file links that died after worktree cleanup. | instrumented: bounded review summary + two-file automated commit |
+| 2026-08-30 08:20 MDT | contract-governance gate | Because the reviewer added tests inside ratified `run_test.go`, adoption stopped for human attention. Human clarified the policy: additive tests/findings are useful and allowed; the core concern is silently changing, weakening, or removing existing charter tests. Human approved the two additions. | instrumented: human decision |
+| 2026-08-30 08:23 MDT | rework / verification | Applied the approved two-test envelope refinement and production fix to PR #133 as commit `9722f8e`. Manual audit found no existing protected-test line removed/changed and no golden diff; both new tests, all 34 adapter tests, full `go test ./...`, `go vet ./...`, and `git diff --check` passed. | instrumented: diff audit + command outputs |

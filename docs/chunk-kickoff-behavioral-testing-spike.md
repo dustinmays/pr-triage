@@ -394,29 +394,38 @@ fuzzier the endpoint (UI look, message tone), the more you lean on snapshots + a
 LLM-judge — and the more explicit the human ratification of *what "correct" means* has to
 be, because there's no exact fixture to hide behind.
 
-### 5.3 Governing golden contracts: not frozen, but escalation-triggering
+### 5.3 Governing golden contracts: protect ratified meaning, allow additive learning
 
 Golden fixtures and scenario tests have one specific failure mode: an agent told to "make
 the red go green" can cheat by **editing the fixture to match a bug** instead of fixing
 the code — the builder-grading-itself trap (§2.4) in disguise.
 
-The wrong fix is to *freeze* fixtures. Contracts legitimately change as we learn things; a
-fixture frozen in time becomes a lie the moment the spec evolves. The right fix uses
-pr-triage's **own mechanism on itself**: once ratified, a chunk's golden fixtures and
-scenario tests are registered as a **high-tier deterministic signal** (a watched path in
-the pre-scan `signal_tiers` — see [[per-chunk-triage-config]]). Then:
+The wrong fix is to *freeze* fixtures or entire test files. Contracts legitimately change
+as we learn things, and implementers/reviewers often discover useful negative bindings
+that strengthen an already-ratified scenario. A file-level watched path cannot distinguish
+that additive learning from laundering.
 
-- **An AI may change a ratified contract** — sometimes it should, at the human's behest,
-  as new information comes in.
-- **But any diff to a ratified fixture/scenario escalates to the human** on the PR-triage
-  side, every time, deterministically. The change isn't blocked; it's *surfaced* — the
-  human decides whether the contract genuinely moved or a bug is being laundered into the
-  oracle.
+The right fix uses pr-triage's **own mechanism on itself** with protected identities, not
+only protected paths. At ratification, record each scenario/test identity and body digest
+plus each golden oracle digest. Then:
+
+- **Changing, weakening, skipping, renaming, or removing an existing ratified binding
+  escalates deterministically.** So does changing a golden oracle. The human decides
+  whether the contract genuinely moved or a bug is being laundered into it.
+- **Adding a test that traces to an existing ratified scenario is allowed and recorded.**
+  It strengthens coverage without rewriting the human-approved behavior. The addition is
+  visible in the scenario-to-test map but need not stop routine implementation.
+- **Adding a new observable requirement returns to the human.** A new scenario is not
+  smuggled in merely by calling it another test.
+- **An AI may propose any contract change** — sometimes it should as new information
+  arrives — but it cannot silently alter previously ratified meaning.
 
 This makes the fixture a **true contract that can still evolve**: durable enough to catch
-laundering, live enough to update with agreement. It's also clean dogfooding — the
-proactive artifact (the contract) is protected by the reactive mechanism (deterministic
-signal → escalate → human decides), with no new machinery. The change *is* the signal.
+laundering, live enough to strengthen during implementation, and explicit when learning
+changes the agreed behavior. The Codex runtime dogfood supplied the concrete case: its
+reviewer added two envelope-write failure tests to an existing scenario without changing
+any ratified test or golden; the human approved those additions while reaffirming that
+silent weakening/removal is the protected risk.
 
 ---
 
