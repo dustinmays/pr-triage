@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/dustinmays/pr-triage/internal/git"
 	"github.com/dustinmays/pr-triage/internal/runtime"
 )
 
@@ -116,6 +117,11 @@ var runtimeCheckCmd = &cobra.Command{
 			return err
 		}
 		defer func() { _ = os.RemoveAll(tmp) }()
+
+		if _, err := git.Run(cmd.Context(), tmp, "init", "-q"); err != nil {
+			fail("could not initialize probe git repository: %v", err)
+			return err
+		}
 
 		inv := runtime.Invocation{
 			Model:   runtimeCheckModel,

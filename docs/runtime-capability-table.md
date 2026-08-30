@@ -11,10 +11,11 @@ discovering differences live by probing:
 - **Claude Code**: exact cost; enforces its own max-turns/budget via CLI
   flags; tool allowlist supported; resume requires passing the working
   directory (sessions are stored per-project-dir).
-- **Codex**: estimated cost only (no terminal cost field — priced from a
-  hardcoded per-model table); does not enforce max-turns/budget itself,
-  so the adapter must self-enforce by watching the stream; no tool
-  allowlist (sandbox-only).
+- **Codex**: no terminal cost field — known priced models are estimated from
+  captured usage; unknown models render Cost=0 with cost basis unavailable;
+  **timeout-only enforcement in v1** (does not enforce max-turns/budget itself,
+  and the adapter does not self-enforce — runs are bounded by timeout, nothing
+  more); no tool allowlist (sandbox-only).
 - **OpenCode**: exact cost; does not enforce turns/budget at all; needs
   `provider/model` form (silently drops a model string with no slash —
   validate at config time); is a shared server, so provider credentials

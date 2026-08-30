@@ -18,3 +18,13 @@ func TestRuntimeAdaptersRegistered(t *testing.T) {
 			runtime.Names(), err)
 	}
 }
+
+// Given the main package import graph, when querying the runtime registry for "codex", it returns the registered adapter.
+// This guards against omitting the blank import of internal/runtime/codex in main.go, which would break CLI routing.
+func TestCodexRuntimeRegistered(t *testing.T) {
+	if _, err := runtime.Get(runtime.NameCodex); err != nil {
+		t.Fatalf("codex runtime not registered in the binary (registered: %v); "+
+			"is the blank import of internal/runtime/codex present in main.go? err: %v",
+			runtime.Names(), err)
+	}
+}

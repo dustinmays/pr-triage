@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"7e3a9b0c-1f2d-4c6b-9a8e-5d4c3b2a1f0e"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"model `gpt-nope-9000` is not available"}}
+{"type":"error","message":"stream disconnected before completion: model `gpt-nope-9000` is not available"}
+{"type":"turn.failed","error":{"message":"model `gpt-nope-9000` is not available"}}
