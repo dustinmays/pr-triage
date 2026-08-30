@@ -8,19 +8,21 @@ implementation → independent verification → reactive-review experiment. Entr
 ## A. Header
 
 - **Chunk / issue:** Codex runtime adapter / #129
-- **PR(s):** pending
+- **PR(s):** #133 — `feature/codex-runtime-adapter` → `main`
 - **Dates:** started 2026-08-29
 - **Implementation orchestration runtime / model:** Codex session (exact host model ID not surfaced)
 - **Delegated RED-test runtime / model:** OpenCode 1.18.23 / `openrouter/z-ai/glm-5.3-flash` (interrupted session `ses_fb0917065ffe2Hsf0SotS5xFwn`) → `openrouter/google/gemini-3.7-flash`
 - **Delegated production implementation runtime / model:** OpenCode 1.18.23 / `openrouter/google/gemini-3.7-flash` (`ses_fb05e14f0ffeiW5anBVgJUWjJo`)
-- **Reactive-review runtime / model:** pending; must not be Codex
-- **Outcome:** in progress — charter and behavioral contract ratified; production implementation reached GREEN in one attempt with protected contracts unchanged; PR/reactive review pending
+- **Reactive triage:** deterministic `chunk_completion` route automatically escalated to the human; no review runtime/model was invoked
+- **Reactive-review runtime / model:** pending separate non-Codex pass
+- **Outcome:** in progress — charter and behavioral contract ratified; production implementation reached GREEN in one attempt with protected contracts unchanged; PR #133 is open with CI GREEN; reactive triage correctly escalated it; smoke and non-Codex review pending
 
 ## B. Scorecard
 
 - **Implementation attempts / first-pass success:** 1 / yes. The production pass added the adapter, binary registration, and doctor Git initialization; targeted contract tests and the agent's full suite passed without production rework.
 - **Rework cycles:** 0 implementation cycles. One reporting correction: the implementation agent summarized “19 adapter tests,” while deterministic inventory and execution show 32 top-level adapter tests; no code changed for this correction.
-- Remaining scorecard fields are pending smoke, CI, and reactive review.
+- **Reactive triage:** 1 run / deterministic human escalation as designed. Evidence: `needs-owner-review` plus an escalation comment naming `target_kind "chunk_completion"`; no LLM reviewer was invoked.
+- Remaining scorecard fields are pending smoke and the separate non-Codex review.
 
 ## C. Front-of-loop process evaluation
 
@@ -213,24 +215,46 @@ charter trace, or protected-artifact diff routes back to the human.
 
 ### Trunk-orchestrator operating model
 
+This section preserves adjacent workflow observations for AgentMinder/Trigger; it is not
+a proposal to expand the front-of-loop or pr-triage scope. The experiment's product focus
+is the beginning of a chunk (grounding, charter, behavioral contract, RED evidence, and
+ratification) and the end (pre-scan, reactive review, escalation, and the final human
+decision). Worktree lifecycle, agent dispatch, concurrency, and routine PR creation belong
+to the middle orchestration system except where their handoff affects those two boundaries.
+The durable architectural decision extracted from these observations is recorded in
+[[0010-topology-agnostic-workflow-state]].
+
 The trunk/chunk orchestrator should be a stateful coordinator, not another code reviewer.
-The durable coordination topology is:
+The two-level topology used in the human's current workflow is one useful projection:
 
 ```text
-main <- chunk/<chunk> <- issue/<n>-<task> worktree and PR
+main <- draft feature/chunk PR <- issue worktree PRs
 ```
 
-For each independent sub-issue, the orchestrator creates an isolated worktree/branch from
-the chunk base and gives the OpenCode agent a small context packet: issue, traced charter
-scenario IDs, ratified checkpoint/protected paths, owned files, and required checks. The
-agent may commit, push, and open its PR against the chunk branch. RED-test and
-implementation commits remain distinct in the PR history, while CI evaluates the final
-head. Independent issue PRs can run concurrently; dependencies remain explicit in the
+It gives the human a continuously updated draft diff and CI cue while isolated child PRs
+land into the feature branch. It is not a required topology for the front-of-loop or
+reactive review. The durable state belongs in AgentMinder/Trigger: chunk identity, charter
+version, ratification events, protected checkpoint, expected RED/GREEN phase, work-item
+ownership/dependencies, verifier verdict, and reactive-review outcome. GitHub branches,
+PRs, and checks are useful projections and evidence, not the only place from which that
+state can be recovered.
+
+When this topology is used, each independent sub-issue gets an isolated worktree/branch
+from the feature/chunk base and a small OpenCode context packet: issue, traced charter
+scenario IDs, ratified checkpoint/protected paths, owned files, and required checks.
+Independent issue PRs can run concurrently; dependencies remain explicit in the external
 chunk ledger.
 
-The PR is the handoff and audit artifact. Full agent transcripts stay in files or the
-agent runtime and are not streamed into the trunk context. The orchestrator waits for a
-terminal handoff (PR URL or bounded failure summary) and normally reads only:
+Within any selected GitHub topology, the destination branch is part of the task contract:
+the context packet includes the exact expected head and base refs; the agent must report
+the resulting PR URL; and the orchestrator verifies GitHub's actual `headRefName` and
+`baseRefName` before accepting the handoff or starting triage. A mismatch is a cheap
+deterministic stop-and-correct condition. This is an adapter-boundary validation that
+AgentMinder/Trigger may own, not a mandate for a particular branch hierarchy.
+
+When a PR is used as the handoff and audit artifact, full agent transcripts stay in files
+or the agent runtime and are not streamed into the trunk context. The orchestrator waits
+for a terminal handoff (PR URL or bounded failure summary) and normally reads only:
 
 | Evidence | Orchestrator attention |
 | --- | --- |
@@ -245,8 +269,38 @@ second general review “for confidence.” Those duplicate the reactive pipelin
 the same attention the product is meant to save. Its high-value work is maintaining the
 chunk state/traceability ledger, deciding what may run in parallel, enforcing gates,
 summarizing evidence, and resolving only cross-issue conflicts, repeated blockers,
-contract changes, or review escalations. The final chunk PR to `main` remains the batched
-human decision point.
+contract changes, or review escalations. In the current two-level workflow the draft
+feature/chunk PR to `main` is the batched human decision point; another workflow may
+project the same durable gates differently.
+
+This experiment also exposed a topology constraint at reactive-review time. PR #133 was
+opened directly against `main`, so pre-scan correctly classified it as
+`chunk_completion`. The current orchestrator treats target-kind escalation as
+non-waivable; even a clean pre-scan cannot route that PR to a review runtime. The expected
+dogfood run therefore escalates to the human by construction. Future experiments that
+need an organic agent-review pass must either target a watched non-`main` base or provide
+another explicit way to declare implementation-review intent. This exposes undesirable
+coupling between branch topology and review role; it does not establish one required
+topology. For this already-open PR, branch restructuring or a one-off manual OpenCode
+review is a human choice, not an orchestration assumption.
+
+The watcher adds a separate constraint: `base_ref` matches the PR's destination branch,
+not its source/head branch. The current config and poller accept one exact base or one
+glob; the repo row is keyed by owner/name, so registering another base replaces the first.
+There is no union such as `main` plus `feature/*` today. An empty base reaches the GitHub
+client's “all open PRs” behavior, but that is broader than the desired multi-base watch.
+A future list/repeated-selector form is a product option, not a decided syntax.
+This was already noted as the one-active-base limitation in the kickoff design and remains
+a useful Trigger/pr-triage interface finding, not work to add to issue #129.
+
+Two RED/CI projections are valid. The design's original flow ratifies RED locally/on the
+issue branch, records an immutable checkpoint, makes that branch GREEN, and verifies it
+before a PR exists; CI sees only the GREEN head. In the human's current two-level workflow,
+the parent PR to `main` is deliberately a draft and may remain RED while ratified tests are
+present and child implementations progressively make it GREEN. That failing draft is a
+useful visual cue, but the durable state must still say “expected RED at checkpoint X” so
+the process is not dependent on GitHub or unable to distinguish expected RED from breakage.
+Neither projection should be baked into the charter/TDD contract itself.
 
 ## D. Deliverables to PM
 
@@ -290,3 +344,13 @@ Pending completion.
 | 2026-08-29 16:25 MDT | contract checkpoint | Committed the ratified charter, 32-test binding, external gate tests, and golden fixtures separately as `080a36e`, establishing the manual protected-contract baseline for this experiment. | instrumented: Git commit |
 | 2026-08-29 20:27 MDT | implementation / first-pass GREEN | Gemini OpenCode session `ses_fb05e14f0ffeiW5anBVgJUWjJo` implemented only `internal/runtime/codex/codex.go`, binary registration, and doctor Git initialization. It reported full-suite/vet GREEN and zero protected-file diff; independent deterministic slices confirmed all 32 adapter tests and external gates GREEN. | instrumented: production diff + test outputs + checkpoint diff |
 | 2026-08-29 20:28 MDT | reporting discrepancy | Implementation-agent handoff incorrectly reported 19 adapter tests despite 32 top-level test functions. Deterministic inventory/output corrected the number; this was a summary-quality issue, not implementation rework. | instrumented: handoff text vs `rg`/Go test output |
+| 2026-08-29 20:31 MDT | PR / verification | Opened PR #133 from `feature/codex-runtime-adapter` to `main`. All required build, test, vet, lint, race, shell, agent, and pre-scan checks completed GREEN; the pre-scan report had no present signals. | instrumented: GitHub PR/check results |
+| 2026-08-29 20:36 MDT | process/topology discovery | Because PR #133 targets `main`, pre-scan classifies it as `chunk_completion`; the current orchestrator explicitly forbids overrides of target-kind escalation. The running dogfood binary is therefore expected to request human review rather than invoke a reactive agent, despite clean signals. | instrumented: pre-scan result + `applyOverride` control flow |
+| 2026-08-29 20:38 MDT | process decision | Human noted that the current PR can be retargeted in GitHub after review and required future OpenCode sub-agents to target the correct chunk branch. Added a deterministic handoff rule: issue task packets name exact head/base refs, and the orchestrator verifies the created PR's actual refs before accepting it or invoking triage. | instrumented: human direction + operating-model update |
+| 2026-08-29 20:47 MDT | scope boundary | Human clarified that middle-of-chunk dispatch, worktree, concurrency, and PR-creation mechanics are likely AgentMinder/Trigger responsibilities. Preserve findings as interface notes, but evaluate this experiment on front-of-chunk charter/TDD quality and back-of-chunk pre-scan/reactive-review quality. | instrumented: human direction + report framing |
+| 2026-08-29 20:49 MDT | dogfood configuration / correction | Human found that the dogfood registration watched a chunk base and changed it to a feature pattern, then caught that `base_ref` filters the PR destination rather than the head. PR #133 targets `main`, so neither chunk nor feature base filters discover it. This corrects the orchestrator's initial mistaken interpretation of the filter direction. | instrumented: human correction + `ListOpenPRs` inspection |
+| 2026-08-29 20:53 MDT | product limitation | Confirmed one exact/glob `base_ref` per owner/repo registration; re-registration overwrites it. Empty means all open PRs at the GitHub-client seam, but there is no configured multi-base union such as default branch plus active chunk. The kickoff design already lists concurrent multi-chunk watching as open. | instrumented: config, DB upsert, GitHub client, and existing design note |
+| 2026-08-29 20:53 MDT | process clarification | Human surfaced the risk that a test-only RED PR would keep parent CI failing. The intended front-of-loop avoids this: ratify and checkpoint RED on the issue branch, implement to GREEN, independently verify, and only then open the PR; ordinary CI evaluates the GREEN head while commit history preserves RED evidence. | instrumented: human question + §4.2/§4.3 design flow + current experiment history |
+| 2026-08-29 21:03 MDT | workflow/generalization | Human described the current two-level stack: a draft feature/chunk PR to `main` stays visibly RED while child worktree PRs merge into the feature branch and progressively make it GREEN. Kept this as a useful GitHub projection, but removed it as a presumed durable topology: AgentMinder/Trigger should own phase/checkpoint/work-item/verdict state, and the front/back contracts should remain usable with other team workflows. | instrumented: human workflow description + report correction |
+| 2026-08-29 21:05 MDT | reactive triage | After the human configured the watcher to include PRs targeting `main`, pr-triage discovered PR #133 and automatically applied `needs-owner-review` plus an escalation comment: `target_kind "chunk_completion" requires human review`. This is the expected deterministic terminal route; no review runtime was invoked. | instrumented: human report + GitHub label/comment verification |
+| 2026-08-29 21:06 MDT | durable decision | Human requested that the topology/state finding outlive the experiment report. Drafted ADR 0010: chunk lifecycle state is provider-independent and authoritative outside GitHub; PR stacks/draft CI are optional projections; expected RED is an explicit phase; multiple base selectors are a required future capability without choosing syntax or orchestration ownership here. | instrumented: human direction + ADR/index/report changes |
