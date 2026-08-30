@@ -3,12 +3,28 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/dustinmays/pr-triage/internal/runtime"
 )
+
+type failingWriter struct {
+	err error
+}
+
+func (w failingWriter) Write([]byte) (int, error) {
+	return 0, w.err
+}
+
+type shortWriter struct{}
+
+func (shortWriter) Write(p []byte) (int, error) {
+	return len(p) - 1, nil
+}
 
 // Given a review invocation, when the adapter launches Codex, it executes `codex exec --json --ephemeral --sandbox workspace-write`.
 // This pins machine-readable output, non-persistent session state, and workspace-write sandbox access.
@@ -185,6 +201,37 @@ func TestRunWritesInvocationEnvelopeBeforeChildJSONL(t *testing.T) {
 	}
 	if childIndex <= envelopeIndex {
 		t.Fatalf("child JSONL at index %d must appear strictly after envelope at index %d", childIndex, envelopeIndex)
+	}
+}
+
+// Given a log writer that rejects the invocation envelope, when Run is called, it fails before launching Codex.
+// This prevents a run whose captured log cannot preserve the model identity required for honest cost reporting.
+func TestRunInvocationEnvelopeWriteFailureAbortsBeforeLaunch(t *testing.T) {
+	sentinel := errors.New("log is unavailable")
+	a := New()
+	a.Binary = "/binary/must/not/be/launched"
+
+	exitCode, err := a.Run(context.Background(), runtime.Invocation{Model: knownPricedModel}, failingWriter{err: sentinel})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Run error = %v, want invocation-envelope write error wrapping %v", err, sentinel)
+	}
+	if exitCode != -1 {
+		t.Fatalf("exitCode = %d, want -1 when the invocation envelope cannot be written", exitCode)
+	}
+}
+
+// Given a log writer that silently short-writes the invocation envelope, when Run is called, it fails before launching Codex.
+// This prevents malformed metadata from being treated as a usable execution log.
+func TestRunInvocationEnvelopeShortWriteAbortsBeforeLaunch(t *testing.T) {
+	a := New()
+	a.Binary = "/binary/must/not/be/launched"
+
+	exitCode, err := a.Run(context.Background(), runtime.Invocation{Model: knownPricedModel}, shortWriter{})
+	if !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("Run error = %v, want %v", err, io.ErrShortWrite)
+	}
+	if exitCode != -1 {
+		t.Fatalf("exitCode = %d, want -1 when the invocation envelope is short-written", exitCode)
 	}
 }
 

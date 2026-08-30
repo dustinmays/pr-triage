@@ -132,8 +132,17 @@ func (a *Adapter) Run(ctx context.Context, inv runtime.Invocation, logFile io.Wr
 				Model:   inv.Model,
 			},
 		}
-		if b, err := json.Marshal(env); err == nil {
-			_, _ = logFile.Write(append(b, '\n'))
+		b, err := json.Marshal(env)
+		if err != nil {
+			return -1, fmt.Errorf("codex: marshal invocation envelope: %w", err)
+		}
+		b = append(b, '\n')
+		n, err := logFile.Write(b)
+		if err != nil {
+			return -1, fmt.Errorf("codex: write invocation envelope: %w", err)
+		}
+		if n != len(b) {
+			return -1, fmt.Errorf("codex: write invocation envelope: %w", io.ErrShortWrite)
 		}
 	}
 
