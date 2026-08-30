@@ -1,6 +1,6 @@
 # 0010 — Chunk workflow state is topology-agnostic; GitHub is a projection
 
-**Status:** Expected (drafted from the issue #129 dogfood; pending sign-off by Dustin)
+**Status:** Locked (signed off by Dustin on 2026-08-30)
 
 ## Decision
 

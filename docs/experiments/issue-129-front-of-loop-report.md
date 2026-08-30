@@ -9,14 +9,14 @@ implementation → independent verification → reactive-review experiment. Entr
 
 - **Chunk / issue:** Codex runtime adapter / #129
 - **PR(s):** #133 — implementation; #134 — disposable full-diff Codex runtime dogfood
-- **Dates:** started 2026-08-29; runtime dogfood 2026-08-30
+- **Dates:** 2026-08-29 through 2026-08-30
 - **Implementation orchestration runtime / model:** Codex session (exact host model ID not surfaced)
 - **Delegated RED-test runtime / model:** OpenCode 1.18.23 / `openrouter/z-ai/glm-5.3-flash` (interrupted session `ses_fb0917065ffe2Hsf0SotS5xFwn`) → `openrouter/google/gemini-3.7-flash`
 - **Delegated production implementation runtime / model:** OpenCode 1.18.23 / `openrouter/google/gemini-3.7-flash` (`ses_fb05e14f0ffeiW5anBVgJUWjJo`)
 - **Reactive triage:** deterministic `chunk_completion` route automatically escalated to the human; no review runtime/model was invoked
-- **Reactive-review runtime / model:** pending separate non-Codex pass
+- **Independent reactive-review runtime / model:** OpenCode 1.18.23 / `openrouter/deepseek/deepseek-v4-pro-0813`; run 25 on PR #134, ~2m47s, 17 turns, exact cost $0.070297876; clean/no edits
 - **Codex runtime smoke:** PR #134 / `codex` / `gpt-5.6-sol`; completed in ~6m06s, one turn, estimated cost $1.3591696; proved auth, pre-scan readability, workspace writes, push, parsing, metrics, and review-comment delivery
-- **Outcome:** in progress — charter and original 32-test behavioral contract ratified; production implementation reached GREEN in one attempt; PR #133 is open; reactive triage correctly escalated it; Codex smoke succeeded and produced one human-approved additive contract refinement; separate non-Codex review pending
+- **Outcome:** success — Codex adapter implemented; original 32-test contract ratified and preserved; two human-approved additive bindings bring the suite to 34; PR #133 and CI are GREEN; deterministic triage escalated the chunk-completion PR as designed; Codex smoke succeeded; independent DeepSeek review found no remaining in-scope defects
 
 ## B. Scorecard
 
@@ -24,7 +24,66 @@ implementation → independent verification → reactive-review experiment. Entr
 - **Rework cycles:** 1 post-GREEN cycle, found by Codex smoke/review: envelope writes ignored errors and short writes, allowing launch without the model metadata required for honest cost. The reviewer added two negative bindings to the existing envelope scenario and a production fix; the human explicitly approved the additive contract change. One separate reporting correction: the implementation agent summarized “19 adapter tests,” while deterministic inventory showed 32 at ratification; no code changed for that correction.
 - **Reactive triage:** 1 run / deterministic human escalation as designed. Evidence: `needs-owner-review` plus an escalation comment naming `target_kind "chunk_completion"`; no LLM reviewer was invoked.
 - **Runtime dogfood:** 1 run / success on `codex` + `gpt-5.6-sol`; one turn, ~6m06s, $1.3591696 estimated. The agent edited and the orchestrator pushed commit `b577eaa` to disposable PR #134.
-- Remaining scorecard fields are pending the separate non-Codex review and final synthesis.
+- **Independent review:** 1 run / clean, no edits. DeepSeek verified the envelope fix and repeated the non-blocking shared-timeout observation; it also raised a future reasoning-token pricing question.
+
+### Things flushed during testing and smoke
+
+| # | What | Found by | Would a plain unit test have caught it? |
+| --- | --- | --- | --- |
+| 1 | Runtime-doctor probe directories must be initialized as Git repositories because production Codex invocation intentionally does not bypass the repository check. | RED test | Y |
+| 2 | Ratified test bodies and goldens are not mechanically protected: changed assertions are not signaled and generic `testdata/` paths are excluded from pre-scan. | Human at RED gate | N |
+| 3 | `base_ref` filters PR destination, only one selector is persisted, and a stale `main` registration made the disposable implementation PR invisible. | Human + smoke | N |
+| 4 | Reusing one head SHA across two PRs can mix same-named report check runs and make report selection ambiguous. | Smoke | N |
+| 5 | Invocation-envelope write errors and short writes allowed launch without the model identity required for honest cost attribution. | Codex reactive review | Y |
+| 6 | Shared deadline termination can be classified as failure instead of `OutcomeTimeout`; this is cross-adapter and deferred from #129. | Codex + DeepSeek reactive reviews | Y |
+| 7 | Review comments linked to temporary worktree paths that became dead after cleanup. | Smoke | N |
+| 8 | Codex reports reasoning-output tokens separately, while current price calculation does not have a separately ratified rate for them. | DeepSeek reactive review | N |
+
+**Findings invisible to plain unit tests:** 5/8 = **62.5%**, versus the OpenCode
+baseline's approximately 40%. The percentage moved upward because grounding and contract
+tests removed ordinary adapter unknowns early, leaving a smaller set concentrated at
+GitHub identity/configuration, governance, and human-attention seams. This is not evidence
+that unit tests regressed; three unit-catchable defects were in fact made executable.
+
+### Things not considered ahead of time
+
+This bucket counts findings first surfaced after charter ratification; grounding findings
+that were incorporated into the ratified charter are intentionally excluded.
+
+| Bucket | Count | Items |
+| --- | ---: | --- |
+| Tool-contract unknowns | 1 | Whether separately reported reasoning-output tokens require a distinct pricing rule |
+| Unplanned scope/gaps | 2 | Invocation-envelope write completeness; shared timeout classification |
+| Environment surprises | 2 | Persisted destination-base filter mismatch; same-SHA/multiple-PR check-run ambiguity |
+| Other | 1 | Ephemeral worktree links in durable review comments |
+| **Total** | **6** | |
+
+Tool-contract unknowns fell to **1/6**, compared with the baseline's **5/9**. Grounding
+converted the larger Codex CLI unknowns—auth, sandbox, Git requirement, JSONL shape,
+model-identity absence, usage semantics, and real failure events—into ratified decisions
+before implementation. The six residual findings were mostly integration and projection
+behavior that a runtime-only charter could not settle.
+
+### Deviations
+
+| Class | Count | What changed |
+| --- | ---: | --- |
+| Did more (good) | 5 | Companion-terminal/readability playbook; manual protected-contract checkpoint/audit; ADR 0010; disposable full-diff runtime smoke PR; additive-test governance refinement |
+| Did different but necessary | 4 | GLM session replaced by Gemini after no output; disposable PR used because the real `main` PR deterministically escalates; unique marker SHA isolated checks; reviewer additions entered through a human contract gate |
+| Did less/nothing (bad) | 0 | None |
+| Product-side unplanned | 5 | Missing protected-contract signal; single destination-base selector; same-SHA report identity ambiguity; ephemeral review links; shared timeout classification |
+
+Counts are instrumented from the timeline; category placement is a synthesis judgment.
+
+### Headline versus the OpenCode baseline
+
+| Measure | This run | Baseline | Movement and likely cause |
+| --- | ---: | ---: | --- |
+| Implementation attempts / first-pass GREEN | 1 / yes | comparison shape retained | Strong: grounded CLI contracts and RED bindings gave the implementer a stable target. |
+| Post-GREEN rework cycles | 1 | comparison shape retained | Small but nonzero: reactive smoke added a missing negative boundary without changing ratified behavior. |
+| Things not considered ahead | 6 | 9 | Down 3: grounding absorbed most runtime tool-contract questions before coding. |
+| Tool-contract unknowns | 1/6 | 5/9 | Materially down: empirical probes plus ADR/runtime-kit reading were the main cause. |
+| Findings invisible to plain unit tests | 62.5% | ~40% | Up: the residual set shifted toward workflow topology, GitHub identity, governance, and durable presentation. |
 
 ## C. Front-of-loop process evaluation
 
@@ -344,9 +403,143 @@ classification issue: deadline-terminated `ExecRun` processes can be classified 
 failure rather than `OutcomeTimeout`; that cross-adapter change is not silently folded
 into #129.
 
+### Charter, TDD, governance, and gate assessment
+
+- **Charter:** It held after grounding. The implementation did not drift from its nine
+  observable scenarios. One reviewer finding required two additive negative bindings to
+  an existing envelope scenario, not a new product behavior. The charter cut escalation
+  noise by explicitly excluding named-agent-definition parity and self-enforced limits.
+- **Grounding ROI:** High. It surfaced the runtime kit, lack of a shared price table,
+  absent production event emitter, stale credential name, Git/sandbox requirements,
+  actual JSONL success/failure shapes, and missing model identity before ratification.
+  This directly moved tool-contract unknowns from the baseline's 5/9 to 1/6 here.
+- **RED-first TDD:** Natural once the stalled GLM delegation was replaced. The resolution
+  was mostly correct: scenario-level intent remained readable while 32 stack bindings
+  supplied concrete executable detail. Input-validation/CLI-boundary tests covered flags,
+  model passthrough, auth environment, and workdir; calculation-to-golden tests covered
+  JSONL normalization and cost; background/process tests covered execution, doctor setup,
+  and result delivery. No UI or TUI endpoint existed in this chunk.
+- **Golden governance:** Neither golden fixture changed after ratification, and the manual
+  checkpoint audit found no altered or removed original binding. Laundering did not occur,
+  but the reviewer additions demonstrated why additions must be distinguishable from
+  weakening. The human approved the two traced additions; changed or removed bindings and
+  changed oracles remain escalation-worthy.
+- **Two gates:** The charter gate was cheap and high leverage. The RED gate was too heavy
+  when presented as 32 equal tests; the human reasonably spot-checked rather than reading
+  all of them. Future gates should present at most about 12 scenario cards, RED evidence,
+  and a scenario-to-binding map, with full tests available progressively.
+- **Builder != verifier:** Enforceable and useful: Gemini built, Codex smoke found the one
+  rework item, and DeepSeek independently found no remaining in-scope defect. Friction came
+  from model availability, branch/config projection, and the cost of importing verbose
+  transcripts—not from the role separation itself.
+
+### Independent non-Codex review
+
+DeepSeek run 25 reviewed the complete adapter and all 34 current adapter tests at
+`b577eaa` in about 2m47s over 17 turns for an exact $0.070297876. It made no edits and
+confirmed the envelope-write fix. It repeated the shared timeout-classification concern
+and added the non-blocking reasoning-token pricing question. Its prose summary said “32
+new Codex tests” even though deterministic inventory showed 34; as with the implementer's
+earlier “19” count, machine inventory is authoritative over agent summary counts.
+
 ## D. Deliverables to PM
 
-Pending completion.
+### What worked
+
+- Empirical tool probing and ADR/domain grounding turned unstable CLI assumptions into a
+  ratified, executable contract before implementation.
+- A separately committed RED checkpoint made the original bindings and goldens auditable.
+- One-behavior tests, concrete values, breadcrumbs, and a progressive companion-terminal
+  flow made the suite inspectable without requiring the human to trust an agent summary.
+- The builder/reviewer split found a real negative-boundary defect; the independent
+  non-Codex pass then closed the loop without redundant implementation edits.
+- Deterministic routing correctly reserved the `main` chunk-completion decision for the
+  human, while a disposable routine PR exercised the new runtime end to end.
+
+### What did not work
+
+- Asking the human to ratify 32 bindings as if each were a separate product decision
+  exceeded the attention budget.
+- The first delegated RED author planned without producing artifacts, and streaming its
+  verbose output unnecessarily consumed orchestrator context.
+- Contract protection is currently social/manual; test assertion and golden changes can
+  evade deterministic pre-scan.
+- Review discovery and identity depend too heavily on GitHub projection details: one
+  destination-base selector, target kind inferred from base branch, and same-SHA checks.
+- Durable review comments contained temporary local paths.
+
+### What could improve
+
+- Make Gate 2 scenario-first: no more than about 12 human decision cards, each mapped to
+  one or more machine-owned bindings and a concise right-reason RED result.
+- Persist a protected-contract checkpoint and manifest of scenario IDs, test identities,
+  and golden digests; deterministically escalate weakening/removal/oracle changes while
+  allowing recorded additions traced to an existing scenario.
+- Give the orchestrator bounded terminal handoffs—PR identity, checks, protected-contract
+  verdict, and review findings—rather than agent transcripts or duplicate code review.
+- Decouple review intent and workflow phase from branch topology; support explicit
+  multiple base selectors at the GitHub boundary.
+- Render durable source links against a repository commit, never an ephemeral worktree.
+
+### Proposed kickoff checklist
+
+1. Create isolated chunk/work-item state and record the exact base commit, intended PR
+   head/base (if any), owner, and expected RED/GREEN phase.
+2. Read impacted ADRs, the nearest adapter/domain implementation, runtime-authoring guide,
+   and repository test style; inventory unresolved tool contracts.
+3. Probe only unresolved external contracts with minimal deterministic examples and retain
+   sanitized fixtures/evidence.
+4. Draft at most about 12 observable scenario cards, explicitly listing non-goals and
+   known limitations.
+5. **Gate 1 — human charter ratification:** approve behaviors, omissions, and escalation
+   boundaries; record charter version and signer.
+6. A separate TDD author maps scenarios to concrete RED bindings/goldens; an independent
+   verifier proves each fails for the intended reason.
+7. Present scenario cards, binding counts/map, fixture provenance, and concise RED evidence;
+   keep full code as progressive disclosure.
+8. **Gate 2 — human contract ratification:** approve scenario coverage and any golden
+   oracles; record immutable checkpoint/manifest.
+9. Implement without authority to weaken protected bindings; allow traced additive tests,
+   but route new behavior or oracle changes to the human.
+10. Verify GREEN independently, including protected-contract integrity and full repository
+    checks; then open/advance the PR and verify its actual head/base references.
+11. Run deterministic pre-scan and reactive review on a working, non-builder runtime;
+    surface only findings, deviations, and contract changes for human attention.
+12. Human decides on escalations and the final chunk-completion merge.
+
+### What a future charter/chunk agent should know and do
+
+Treat the charter as the human-owned observable boundary, not a request for exhaustive
+test enumeration. Trace every issue and binding to a stable scenario ID; disclose tool
+unknowns and probe them before ratification; preserve fixture provenance; report exact
+head/base/checkpoint identities; never alter a protected binding or oracle silently; and
+return a bounded evidence packet instead of a reasoning transcript. Additive learning is
+welcome when it strengthens an existing scenario and is recorded. New behavior, changed
+expected values, missing traceability, or weakened coverage returns to the human.
+
+### Testing-flow recommendations
+
+Set up an isolated worktree and a writable Go cache, show `git status` plus untracked-file
+inventory, and start with the scenario-to-test map. Deliver evidence progressively:
+scenario card → sentence-style test name and breadcrumb → one representative right-reason
+RED output → per-scenario summary → full suite and fixtures on demand. Preserve the RED
+checkpoint, then show the same inventory GREEN without changing protected meaning. Use
+deterministic test counts and diffs instead of model-reported counts. Give a busy human a
+copyable companion-terminal sequence and five or fewer explicit decisions at each gate.
+
+### Open questions and risks
+
+- Where should the protected-contract manifest/checkpoint live, and which component owns
+  its integrity signal and human override record?
+- What explicit field replaces topology-derived review intent, and how should multiple
+  base selectors be configured without making “watch all” the default?
+- How should expected RED appear in CI/status without weakening ordinary merge gates?
+- Should reasoning-output tokens receive distinct Codex pricing, and how is that price
+  versioned with captured usage fixtures?
+- Should shared `ExecRun` deadline termination become `OutcomeTimeout` across all adapters,
+  and what compatibility tests are required before changing it?
+- How should temporary/disposable review PRs and branches be retained or cleaned while
+  preserving durable evidence?
 
 ## E. Evidence appendix — running timeline
 
@@ -404,3 +597,7 @@ Pending completion.
 | 2026-08-30 08:18 MDT | reactive finding | Codex found that envelope write errors/short writes were ignored, allowing launch without required model metadata. It added two negative tests and a fail-before-launch fix. It separately deferred cross-adapter timeout misclassification; its review comment also contained ephemeral absolute file links that died after worktree cleanup. | instrumented: bounded review summary + two-file automated commit |
 | 2026-08-30 08:20 MDT | contract-governance gate | Because the reviewer added tests inside ratified `run_test.go`, adoption stopped for human attention. Human clarified the policy: additive tests/findings are useful and allowed; the core concern is silently changing, weakening, or removing existing charter tests. Human approved the two additions. | instrumented: human decision |
 | 2026-08-30 08:23 MDT | rework / verification | Applied the approved two-test envelope refinement and production fix to PR #133 as commit `9722f8e`. Manual audit found no existing protected-test line removed/changed and no golden diff; both new tests, all 34 adapter tests, full `go test ./...`, `go vet ./...`, and `git diff --check` passed. | instrumented: diff audit + command outputs |
+| 2026-08-30 08:31 MDT | independent review | DeepSeek run 25 started on disposable PR #134 at `b577eaa` using OpenCode 1.18.23 / `openrouter/deepseek/deepseek-v4-pro-0813`; it received the complete adapter diff and current 34-test suite without importing its transcript into the trunk context. | instrumented: persisted run state |
+| 2026-08-30 08:34 MDT | independent review success | Run 25 finished clean/no edits in ~2m47s over 17 turns for exact cost $0.070297876. It confirmed the envelope fix, repeated the non-blocking shared-timeout concern, and raised reasoning-token pricing as a future contract question. | instrumented: bounded review summary + run metrics |
+| 2026-08-30 08:34 MDT | reporting discrepancy | DeepSeek summarized the current suite as 32 tests although deterministic inventory showed 34. Agent prose counts remain advisory; executable inventory is authoritative. | instrumented: review summary vs Go test inventory |
+| 2026-08-30 08:42 MDT | ADR ratification | Human approved ADR 0010; status changed from Expected to Locked and the ADR index was updated. | instrumented: explicit human sign-off |
