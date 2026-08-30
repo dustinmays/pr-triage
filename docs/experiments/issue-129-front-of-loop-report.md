@@ -12,12 +12,15 @@ implementation → independent verification → reactive-review experiment. Entr
 - **Dates:** started 2026-08-29
 - **Implementation orchestration runtime / model:** Codex session (exact host model ID not surfaced)
 - **Delegated RED-test runtime / model:** OpenCode 1.18.23 / `openrouter/z-ai/glm-5.3-flash` (interrupted session `ses_fb0917065ffe2Hsf0SotS5xFwn`) → `openrouter/google/gemini-3.7-flash`
+- **Delegated production implementation runtime / model:** OpenCode 1.18.23 / `openrouter/google/gemini-3.7-flash` (`ses_fb05e14f0ffeiW5anBVgJUWjJo`)
 - **Reactive-review runtime / model:** pending; must not be Codex
-- **Outcome:** in progress — charter **ratified** 2026-08-29 15:23 MDT; nine-scenario behavioral contract / 32-test RED binding **ratified** 2026-08-29 16:25 MDT after human spot-check; implementation authorized
+- **Outcome:** in progress — charter and behavioral contract ratified; production implementation reached GREEN in one attempt with protected contracts unchanged; PR/reactive review pending
 
 ## B. Scorecard
 
-Pending implementation and verification.
+- **Implementation attempts / first-pass success:** 1 / yes. The production pass added the adapter, binary registration, and doctor Git initialization; targeted contract tests and the agent's full suite passed without production rework.
+- **Rework cycles:** 0 implementation cycles. One reporting correction: the implementation agent summarized “19 adapter tests,” while deterministic inventory and execution show 32 top-level adapter tests; no code changed for this correction.
+- Remaining scorecard fields are pending smoke, CI, and reactive review.
 
 ## C. Front-of-loop process evaluation
 
@@ -208,6 +211,43 @@ Issue-level contracts can proceed without a new human gate when they only refine
 already-ratified scenario. A new observable behavior, changed oracle/golden, missing
 charter trace, or protected-artifact diff routes back to the human.
 
+### Trunk-orchestrator operating model
+
+The trunk/chunk orchestrator should be a stateful coordinator, not another code reviewer.
+The durable coordination topology is:
+
+```text
+main <- chunk/<chunk> <- issue/<n>-<task> worktree and PR
+```
+
+For each independent sub-issue, the orchestrator creates an isolated worktree/branch from
+the chunk base and gives the OpenCode agent a small context packet: issue, traced charter
+scenario IDs, ratified checkpoint/protected paths, owned files, and required checks. The
+agent may commit, push, and open its PR against the chunk branch. RED-test and
+implementation commits remain distinct in the PR history, while CI evaluates the final
+head. Independent issue PRs can run concurrently; dependencies remain explicit in the
+chunk ledger.
+
+The PR is the handoff and audit artifact. Full agent transcripts stay in files or the
+agent runtime and are not streamed into the trunk context. The orchestrator waits for a
+terminal handoff (PR URL or bounded failure summary) and normally reads only:
+
+| Evidence | Orchestrator attention |
+| --- | --- |
+| PR/base/head and changed-file summary | Track ownership, dependency, and scope |
+| CI/check status | Advance on deterministic GREEN; route persistent failure |
+| Pre-scan present signals and evidence | Escalate only the named risk/contract facts |
+| Protected-contract integrity result | Stop immediately on drift |
+| Reactive review verdict and findings | Act on findings; do not duplicate routine review |
+
+The orchestrator should not tail agent reasoning, reread an un-escalated diff, or launch a
+second general review “for confidence.” Those duplicate the reactive pipeline and consume
+the same attention the product is meant to save. Its high-value work is maintaining the
+chunk state/traceability ledger, deciding what may run in parallel, enforcing gates,
+summarizing evidence, and resolving only cross-issue conflicts, repeated blockers,
+contract changes, or review escalations. The final chunk PR to `main` remains the batched
+human decision point.
+
 ## D. Deliverables to PM
 
 Pending completion.
@@ -246,3 +286,7 @@ Pending completion.
 | 2026-08-29 16:22 MDT | governance gap / human feedback | Human identified that an implementer can launder a bug by editing ratified contract tests or goldens and asked for deterministic pre-scan escalation. Inspection confirmed modified assertions are not signaled and all `testdata/` paths are excluded; §5.3 is aspirational in the current product. | instrumented: human feedback + scanner/config inspection |
 | 2026-08-29 16:22 MDT | attention-budget decision | Human explicitly kept the current 32-test suite but set future guidance at roughly a dozen human-reviewed charter behaviors. The current charter already has nine scenarios; the 32 tests are stack-local bindings to be agent-verified and available through progressive disclosure, not 32 equal human decisions. | instrumented: human decision + scenario/test counts |
 | 2026-08-29 16:25 MDT | ratification gate | Human spot-checked a subset rather than all 32 Go bindings and approved proceeding. Gate 2 ratifies the nine charter scenarios, their 32-test executable binding, the invocation-envelope schema, pricing semantics, and both Codex 0.151.0 golden fixtures. | instrumented: explicit human approval |
+| 2026-08-29 20:27 MDT | orchestration/process correction | Human clarified that separate-model credits were not the issue; the problem was the trunk orchestrator importing too much sub-agent context and duplicating routine code review. Adopted PR/check-driven coordination: issue agents work in isolated branches/worktrees, commit/push/open PRs to the chunk branch, and the orchestrator attends only to state, deterministic gates, and escalations. | instrumented: human feedback + operating-model update |
+| 2026-08-29 16:25 MDT | contract checkpoint | Committed the ratified charter, 32-test binding, external gate tests, and golden fixtures separately as `080a36e`, establishing the manual protected-contract baseline for this experiment. | instrumented: Git commit |
+| 2026-08-29 20:27 MDT | implementation / first-pass GREEN | Gemini OpenCode session `ses_fb05e14f0ffeiW5anBVgJUWjJo` implemented only `internal/runtime/codex/codex.go`, binary registration, and doctor Git initialization. It reported full-suite/vet GREEN and zero protected-file diff; independent deterministic slices confirmed all 32 adapter tests and external gates GREEN. | instrumented: production diff + test outputs + checkpoint diff |
+| 2026-08-29 20:28 MDT | reporting discrepancy | Implementation-agent handoff incorrectly reported 19 adapter tests despite 32 top-level test functions. Deterministic inventory/output corrected the number; this was a summary-quality issue, not implementation rework. | instrumented: handoff text vs `rg`/Go test output |
