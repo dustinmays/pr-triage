@@ -116,7 +116,7 @@ In another terminal, verify daemon status and registered repositories:
 2. **Observe Layer 2 Pre-Scan**:
    - The `.github/workflows/pr-prescan.yml` workflow triggers on PR creation.
    - It runs `scripts/pr-prescan.sh` and publishes the Check Run `pr-prescan-report` with `conclusion: neutral`.
-   - A comment marked with `<!-- prescan:v1 -->` is posted to the PR.
+   - A short comment marked with `<!-- prescan:v1 -->` is posted to the PR, pointing at the workflow run and giving the manual `claude --agent review-agent` one-liner - the full report JSON lives only on the check run, not in the comment.
 
 3. **Observe Daemon Ingestion & Agent Execution**:
    - The poller picks up the `report_ready` event on check completion.
