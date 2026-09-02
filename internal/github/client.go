@@ -59,6 +59,27 @@ func (c *Client) GH() *github.Client {
 	return c.gh
 }
 
+// CoreRateLimit returns the core API rate limit status for the client's token.
+func (c *Client) CoreRateLimit(ctx context.Context) (*github.Rate, error) {
+	limits, _, err := c.gh.RateLimit.Get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get rate limits: %w", err)
+	}
+	return limits.GetCore(), nil
+}
+
+// ValidateToken confirms the client's credentials are accepted by GitHub and
+// returns the authenticated user's login. It exists so callers like `pr-triage
+// setup` can catch a bad, expired, or mistyped token immediately, instead of
+// only discovering it later when it fails silently deep in the poll loop.
+func (c *Client) ValidateToken(ctx context.Context) (string, error) {
+	user, _, err := c.gh.Users.Get(ctx, "")
+	if err != nil {
+		return "", fmt.Errorf("validate token: %w", err)
+	}
+	return user.GetLogin(), nil
+}
+
 // ListOpenPRs lists open pull requests for a repository, optionally filtered by baseRef.
 // baseRef can be an exact branch name (e.g. "main") or a glob pattern (e.g. "release/*").
 // If baseRef is empty, all open PRs are returned.

@@ -232,6 +232,47 @@ func TestGetPRState(t *testing.T) {
 	}
 }
 
+func TestDeletePRState(t *testing.T) {
+	store := setupTestDB(t)
+
+	repo, err := store.UpsertRepo(&Repo{
+		Owner:        "dustinmays",
+		Name:         "pr-triage",
+		BaseRef:      "main",
+		PollInterval: "60s",
+		ConfigPath:   ".pr-triage.yaml",
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepo: %v", err)
+	}
+
+	// Deleting a PR that was never tracked returns ErrNotFound.
+	if err := store.DeletePRState(repo.ID, 999); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("DeletePRState non-existent: err = %v, want ErrNotFound", err)
+	}
+
+	if _, err := store.UpsertPRState(repo.ID, 101, "head-sha-101", nil, "ci_failed"); err != nil {
+		t.Fatalf("UpsertPRState: %v", err)
+	}
+
+	if err := store.DeletePRState(repo.ID, 101); err != nil {
+		t.Fatalf("DeletePRState: %v", err)
+	}
+
+	if _, err := store.GetPRState(repo.ID, 101); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetPRState after delete: err = %v, want ErrNotFound", err)
+	}
+
+	// Re-upserting after a delete behaves like a brand-new PR.
+	recreated, err := store.UpsertPRState(repo.ID, 101, "head-sha-101", nil, "ci_running")
+	if err != nil {
+		t.Fatalf("UpsertPRState after delete: %v", err)
+	}
+	if recreated.State != "ci_running" {
+		t.Errorf("recreated.State = %q, want %q", recreated.State, "ci_running")
+	}
+}
+
 func TestListRuns_PopulatesGitHubPRNumber(t *testing.T) {
 	store := setupTestDB(t)
 
