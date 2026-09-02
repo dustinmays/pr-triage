@@ -45,6 +45,18 @@ func (s *Store) GetPRState(repoID int64, number int) (*PR, error) {
 	return GetPRState(s.db, repoID, number)
 }
 
+// DeletePRState removes a tracked pull request (and, via cascade, its recorded
+// runs) so the poller treats it as a fresh, never-seen PR on its next poll.
+func (s *Store) DeletePRState(repoID int64, number int) error {
+	return DeletePRState(s.db, repoID, number)
+}
+
+// ListPRsForRepo returns all tracked pull requests for a repo, most recently
+// updated first.
+func (s *Store) ListPRsForRepo(repoID int64) ([]PR, error) {
+	return ListPRsForRepo(s.db, repoID)
+}
+
 // RecordRun inserts a new agent execution run record.
 func (s *Store) RecordRun(run *Run) (*Run, error) {
 	return RecordRun(s.db, run)
@@ -175,6 +187,37 @@ func GetPRState(db *sqlx.DB, repoID int64, number int) (*PR, error) {
 		return nil, fmt.Errorf("db: get pr state: %w", err)
 	}
 	return &pr, nil
+}
+
+// DeletePRState removes the tracked pull request identified by (repoID, number).
+// Its runs cascade-delete with it (runs.pr_id REFERENCES prs(id) ON DELETE CASCADE).
+// If no such PR is tracked, it returns ErrNotFound.
+func DeletePRState(db *sqlx.DB, repoID int64, number int) error {
+	res, err := db.Exec("DELETE FROM prs WHERE repo_id = ? AND number = ?", repoID, number)
+	if err != nil {
+		return fmt.Errorf("db: delete pr state: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("db: rows affected: %w", err)
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ListPRsForRepo returns all tracked pull requests for a repo, most recently
+// updated first.
+func ListPRsForRepo(db *sqlx.DB, repoID int64) ([]PR, error) {
+	prs := make([]PR, 0)
+	err := db.Select(&prs,
+		"SELECT id, repo_id, number, head_sha, last_run_id, state, updated_at FROM prs WHERE repo_id = ? ORDER BY updated_at DESC",
+		repoID)
+	if err != nil {
+		return nil, fmt.Errorf("db: list prs for repo %d: %w", repoID, err)
+	}
+	return prs, nil
 }
 
 // RecordRun inserts a new agent execution run record and updates the
