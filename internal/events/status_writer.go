@@ -32,13 +32,19 @@ type PRStatusSummary struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// maxRecentErrors caps how many error events (poll_error, orchestrator_error)
+// StatusFileWriter keeps, so a daemon stuck failing every cycle doesn't grow
+// status.json unbounded.
+const maxRecentErrors = 10
+
 // StatusFile is the JSON document written to ~/.pr-triage/status.json.
 type StatusFile struct {
-	UpdatedAt  time.Time         `json:"updated_at"`
-	DaemonPID  int               `json:"daemon_pid"`
-	ActiveRuns []ActiveRunStatus `json:"active_runs"`
-	RecentPRs  []PRStatusSummary `json:"recent_prs"`
-	LastEvent  *Event            `json:"last_event,omitempty"`
+	UpdatedAt    time.Time         `json:"updated_at"`
+	DaemonPID    int               `json:"daemon_pid"`
+	ActiveRuns   []ActiveRunStatus `json:"active_runs"`
+	RecentPRs    []PRStatusSummary `json:"recent_prs"`
+	LastEvent    *Event            `json:"last_event,omitempty"`
+	RecentErrors []Event           `json:"recent_errors,omitempty"`
 }
 
 // DefaultStatusPath returns ~/.pr-triage/status.json.
@@ -48,11 +54,12 @@ func DefaultStatusPath() string {
 
 // StatusFileWriter listens to events and persists the latest status to a JSON file atomically.
 type StatusFileWriter struct {
-	mu         sync.Mutex
-	filePath   string
-	activeRuns map[string]ActiveRunStatus
-	recentPRs  map[string]PRStatusSummary
-	lastEvent  *Event
+	mu           sync.Mutex
+	filePath     string
+	activeRuns   map[string]ActiveRunStatus
+	recentPRs    map[string]PRStatusSummary
+	lastEvent    *Event
+	recentErrors []Event
 }
 
 // NewStatusFileWriter creates a StatusFileWriter writing to filePath.
@@ -85,6 +92,13 @@ func (w *StatusFileWriter) HandleEvent(event Event) {
 			HeadSHA:   event.HeadSHA,
 			State:     event.State,
 			UpdatedAt: event.Timestamp,
+		}
+	}
+
+	if IsErrorEvent(event.Type) {
+		w.recentErrors = append(w.recentErrors, cp)
+		if len(w.recentErrors) > maxRecentErrors {
+			w.recentErrors = w.recentErrors[len(w.recentErrors)-maxRecentErrors:]
 		}
 	}
 
@@ -142,12 +156,16 @@ func (w *StatusFileWriter) writeAtomicLocked() error {
 		recentList = append(recentList, pr)
 	}
 
+	errList := make([]Event, len(w.recentErrors))
+	copy(errList, w.recentErrors)
+
 	statusDoc := StatusFile{
-		UpdatedAt:  time.Now().UTC(),
-		DaemonPID:  os.Getpid(),
-		ActiveRuns: activeList,
-		RecentPRs:  recentList,
-		LastEvent:  w.lastEvent,
+		UpdatedAt:    time.Now().UTC(),
+		DaemonPID:    os.Getpid(),
+		ActiveRuns:   activeList,
+		RecentPRs:    recentList,
+		LastEvent:    w.lastEvent,
+		RecentErrors: errList,
 	}
 
 	data, err := json.MarshalIndent(statusDoc, "", "  ")

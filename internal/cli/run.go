@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/dustinmays/pr-triage/internal/daemon"
 	"github.com/dustinmays/pr-triage/internal/db"
 	"github.com/dustinmays/pr-triage/internal/escalate"
+	"github.com/dustinmays/pr-triage/internal/events"
 	"github.com/dustinmays/pr-triage/internal/github"
 	"github.com/dustinmays/pr-triage/internal/orchestrator"
 	"github.com/dustinmays/pr-triage/internal/poller"
@@ -55,8 +57,52 @@ var runCmd = &cobra.Command{
 		out := cmd.OutOrStdout()
 		printStartupBanner(ctx, out, store, ghClient, dbPath, tokenSource)
 
-		p := poller.New(store, ghClient)
-		orch := orchestrator.New(store, ghClient, escalator)
+		emitter := events.NewEmitter()
+		statusWriter := events.NewStatusFileWriter(events.DefaultStatusPath())
+		emitter.Subscribe(statusWriter.HandleEvent)
+
+		errOut := cmd.ErrOrStderr()
+		logError := func(source, repoOwner, repoName string, prNumber int, err error) {
+			ts := time.Now().UTC().Format(time.RFC3339)
+			switch {
+			case prNumber > 0:
+				fmt.Fprintf(errOut, "%s [%s] %s/%s#%d: %v\n", ts, source, repoOwner, repoName, prNumber, err)
+			case repoOwner != "":
+				fmt.Fprintf(errOut, "%s [%s] %s/%s: %v\n", ts, source, repoOwner, repoName, err)
+			default:
+				fmt.Fprintf(errOut, "%s [%s] %v\n", ts, source, err)
+			}
+		}
+
+		onPollError := func(repo db.Repo, prNumber int, err error) {
+			logError("poller", repo.Owner, repo.Name, prNumber, err)
+			emitter.Emit(events.Event{
+				Type:        events.EventPollError,
+				RepoOwner:   repo.Owner,
+				RepoName:    repo.Name,
+				PRNumber:    prNumber,
+				Description: err.Error(),
+			})
+		}
+
+		onOrchestratorError := func(evt *poller.ReportReadyEvent, err error) {
+			var owner, name string
+			var prNumber int
+			if evt != nil {
+				owner, name, prNumber = evt.Repo.Owner, evt.Repo.Name, evt.PRNumber
+			}
+			logError("orchestrator", owner, name, prNumber, err)
+			emitter.Emit(events.Event{
+				Type:        events.EventOrchestratorError,
+				RepoOwner:   owner,
+				RepoName:    name,
+				PRNumber:    prNumber,
+				Description: err.Error(),
+			})
+		}
+
+		p := poller.New(store, ghClient, poller.WithOnError(onPollError))
+		orch := orchestrator.New(store, ghClient, escalator, orchestrator.WithOnError(onOrchestratorError))
 
 		errCh := make(chan error, 2)
 

@@ -63,6 +63,16 @@ const (
 	RecoveryRetry      RecoveryPolicy = "retry"
 )
 
+// OnErrorFunc is called whenever the orchestrator hits a non-fatal error
+// processing a report_ready event or recovering stranded runs on startup.
+// It never blocks or changes control flow - the existing log-and-continue
+// behavior is unchanged - it only adds visibility into failures that would
+// otherwise be dropped silently by the Start loop.
+//
+// event is nil when the error isn't scoped to a single report_ready event
+// (e.g. Recover's initial query for stranded runs failed).
+type OnErrorFunc func(event *poller.ReportReadyEvent, err error)
+
 // Options configures the Orchestrator.
 type Options struct {
 	Concurrency    int
@@ -71,6 +81,7 @@ type Options struct {
 	LogDir         string
 	AgentPrompt    string
 	RecoveryPolicy RecoveryPolicy
+	OnError        OnErrorFunc
 }
 
 // Option is a functional option for Orchestrator.
@@ -117,6 +128,15 @@ func WithLogDir(dir string) Option {
 	}
 }
 
+// WithOnError sets the callback invoked on non-fatal orchestrator errors
+// (a failed HandleReportReady, or a failed Recover on startup). Without
+// this, such errors are silently dropped by the Start loop.
+func WithOnError(fn OnErrorFunc) Option {
+	return func(o *Options) {
+		o.OnError = fn
+	}
+}
+
 // Orchestrator manages the execution queue and agent lifecycles.
 type Orchestrator struct {
 	store     Store
@@ -138,10 +158,14 @@ func New(store Store, client GitHubClient, escalator Escalator, opts ...Option) 
 		WorktreeTTL: 72 * time.Hour,
 		LogDir:      filepath.Join(os.TempDir(), "pr-triage-logs"),
 		AgentPrompt: "Review and fix issues identified in the CI report.",
+		OnError:     func(*poller.ReportReadyEvent, error) {},
 	}
 
 	for _, opt := range opts {
 		opt(&options)
+	}
+	if options.OnError == nil {
+		options.OnError = func(*poller.ReportReadyEvent, error) {}
 	}
 
 	return &Orchestrator{
@@ -182,7 +206,9 @@ func (o *Orchestrator) Start(ctx context.Context, eventCh <-chan poller.ReportRe
 	}()
 
 	// Reconcile and recover any stranded runs left in agent_running state on startup
-	_ = o.Recover(ctx)
+	if err := o.Recover(ctx); err != nil {
+		o.opts.OnError(nil, err)
+	}
 
 	// Periodic worktree sweep ticker
 	sweepTicker := time.NewTicker(1 * time.Hour)
@@ -202,6 +228,8 @@ func (o *Orchestrator) Start(ctx context.Context, eventCh <-chan poller.ReportRe
 				return nil
 			}
 			if err := o.HandleReportReady(ctx, event); err != nil {
+				evt := event
+				o.opts.OnError(&evt, err)
 				continue
 			}
 		}

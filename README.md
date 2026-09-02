@@ -27,11 +27,33 @@ permissions**:
 | Pull requests  | Read and write | List/get PRs being triaged                                       |
 | Issues         | Read and write | PR comments and labels go through the Issues API under the hood  |
 | Contents       | Read and write | The review agent commits and pushes fixes in its worktree        |
-| Actions        | Read           | Polls check-run status to know when CI has finished              |
+| Checks         | Read           | Polls check-run status to know when CI has finished              |
 | Metadata       | Read           | Mandatory baseline permission; included automatically            |
 
-`Commit statuses` and `Workflows` aren't used by any pr-triage code path and
-can be left at "No access".
+`Commit statuses`, `Actions`, and `Workflows` aren't used by any pr-triage
+code path and can be left at "No access".
+
+**Gotcha:** `Commit statuses` and `Checks` are two different, unrelated
+permissions — `Commit statuses` gates the legacy Status API, `Checks` gates
+the check-runs API pr-triage actually polls
+(`GET /repos/{owner}/{repo}/commits/{sha}/check-runs`). A token with
+`Commit statuses` (or `Actions`) granted but not `Checks` authenticates fine,
+lists PRs fine, and still gets a 403 on every check-run poll. Because that
+403 was, until recently, swallowed silently, the PR just sits in `ci_running`
+forever even though CI is green on GitHub — indistinguishable from a broken
+token or a daemon that isn't polling at all. `pr-triage run`'s startup banner
+prints the authenticated identity and rate limit for a quick sanity check,
+but the only way to confirm `Checks` access specifically is to hit the
+check-runs endpoint directly:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $GITHUB_TOKEN" \
+  https://api.github.com/repos/<owner>/<repo>/commits/<any-recent-sha>/check-runs
+```
+
+A `200` confirms `Checks` access; a `403` means it's missing from the token's
+repository permissions (fine-grained tokens on an org repo may also need an
+org owner to approve the permission change before it takes effect).
 
 **Gotcha:** a read-only token causes `CreateComment` to fail with a 401 that
 can go unnoticed if you're not watching the daemon's stderr — if review
