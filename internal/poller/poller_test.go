@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -85,6 +86,7 @@ type mockGitHubClient struct {
 	checkRuns       map[string][]*gh.CheckRun
 	checkRunCalls   int
 	checkRunSeqFunc func(sha string, callCount int) []*gh.CheckRun
+	listPRsErr      map[string]error
 }
 
 func newMockGitHubClient() *mockGitHubClient {
@@ -98,6 +100,9 @@ func (c *mockGitHubClient) ListOpenPRs(ctx context.Context, owner, repo, baseRef
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	key := owner + "/" + repo
+	if err, ok := c.listPRsErr[key]; ok {
+		return nil, err
+	}
 	prs, ok := c.prs[key]
 	if !ok {
 		return []*gh.PullRequest{}, nil
@@ -286,6 +291,58 @@ func TestPoller_NewPR_CIFails(t *testing.T) {
 		t.Fatalf("expected no ReportReadyEvent on CI failure, got %+v", evt)
 	default:
 		// OK
+	}
+}
+
+func TestPoller_ListOpenPRsError_ReportedViaOnError(t *testing.T) {
+	store := newMockStore()
+	store.repos = append(store.repos, db.Repo{
+		ID:      1,
+		Owner:   "Bellese",
+		Name:    "orgz-seed-template",
+		BaseRef: "chunk/**",
+	})
+
+	client := newMockGitHubClient()
+	client.listPRsErr = map[string]error{
+		"Bellese/orgz-seed-template": errors.New("GET https://api.github.com/repos/Bellese/orgz-seed-template/pulls: 404 Not Found"),
+	}
+
+	var mu sync.Mutex
+	var gotRepo db.Repo
+	var gotPRNumber int
+	var gotErr error
+	calls := 0
+
+	p := poller.New(store, client,
+		poller.WithOnError(func(repo db.Repo, prNumber int, err error) {
+			mu.Lock()
+			defer mu.Unlock()
+			calls++
+			gotRepo = repo
+			gotPRNumber = prNumber
+			gotErr = err
+		}),
+	)
+
+	ctx := context.Background()
+	if err := p.PollOnce(ctx); err != nil {
+		t.Fatalf("PollOnce failed: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("OnError called %d times, want 1", calls)
+	}
+	if gotRepo.Owner != "Bellese" || gotRepo.Name != "orgz-seed-template" {
+		t.Errorf("OnError repo = %+v, want Bellese/orgz-seed-template", gotRepo)
+	}
+	if gotPRNumber != 0 {
+		t.Errorf("OnError prNumber = %d, want 0 (repo-level error)", gotPRNumber)
+	}
+	if gotErr == nil || !strings.Contains(gotErr.Error(), "404 Not Found") {
+		t.Errorf("OnError err = %v, want it to contain the underlying 404", gotErr)
 	}
 }
 

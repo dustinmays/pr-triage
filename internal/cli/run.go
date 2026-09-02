@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/dustinmays/pr-triage/internal/daemon"
 	"github.com/dustinmays/pr-triage/internal/db"
 	"github.com/dustinmays/pr-triage/internal/escalate"
+	"github.com/dustinmays/pr-triage/internal/events"
 	"github.com/dustinmays/pr-triage/internal/github"
 	"github.com/dustinmays/pr-triage/internal/orchestrator"
 	"github.com/dustinmays/pr-triage/internal/poller"
@@ -48,7 +50,32 @@ var runCmd = &cobra.Command{
 		ghClient := github.NewClient(token)
 		escalator := escalate.New(store, ghClient)
 
-		p := poller.New(store, ghClient)
+		emitter := events.NewEmitter()
+		statusWriter := events.NewStatusFileWriter(events.DefaultStatusPath())
+		emitter.Subscribe(statusWriter.HandleEvent)
+
+		errOut := cmd.ErrOrStderr()
+		onPollError := func(repo db.Repo, prNumber int, err error) {
+			ts := time.Now().UTC().Format(time.RFC3339)
+			switch {
+			case prNumber > 0:
+				fmt.Fprintf(errOut, "%s [poller] %s/%s#%d: %v\n", ts, repo.Owner, repo.Name, prNumber, err)
+			case repo.Owner != "":
+				fmt.Fprintf(errOut, "%s [poller] %s/%s: %v\n", ts, repo.Owner, repo.Name, err)
+			default:
+				fmt.Fprintf(errOut, "%s [poller] %v\n", ts, err)
+			}
+
+			emitter.Emit(events.Event{
+				Type:        events.EventPollError,
+				RepoOwner:   repo.Owner,
+				RepoName:    repo.Name,
+				PRNumber:    prNumber,
+				Description: err.Error(),
+			})
+		}
+
+		p := poller.New(store, ghClient, poller.WithOnError(onPollError))
 		orch := orchestrator.New(store, ghClient, escalator)
 
 		errCh := make(chan error, 2)

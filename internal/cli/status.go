@@ -64,6 +64,20 @@ var statusCmd = &cobra.Command{
 			fmt.Fprintln(out, "Daemon: \033[90mSTOPPED\033[0m")
 		}
 
+		if statusDoc != nil && len(statusDoc.RecentPollErrors) > 0 {
+			fmt.Fprintf(out, "\n\033[31mPoll Errors (%d):\033[0m\n", len(statusDoc.RecentPollErrors))
+			for _, e := range statusDoc.RecentPollErrors {
+				switch {
+				case e.PRNumber > 0:
+					fmt.Fprintf(out, "  ⚠ %s %s/%s#%d: %s\n", e.Timestamp.Format("15:04:05"), e.RepoOwner, e.RepoName, e.PRNumber, e.Description)
+				case e.RepoOwner != "":
+					fmt.Fprintf(out, "  ⚠ %s %s/%s: %s\n", e.Timestamp.Format("15:04:05"), e.RepoOwner, e.RepoName, e.Description)
+				default:
+					fmt.Fprintf(out, "  ⚠ %s %s\n", e.Timestamp.Format("15:04:05"), e.Description)
+				}
+			}
+		}
+
 		if statusDoc != nil && len(statusDoc.ActiveRuns) > 0 {
 			fmt.Fprintf(out, "\nActive Invocations (%d):\n", len(statusDoc.ActiveRuns))
 			for _, ar := range statusDoc.ActiveRuns {

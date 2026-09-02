@@ -1,6 +1,7 @@
 package events_test
 
 import (
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -121,5 +122,39 @@ func TestStatusFileWriter_EndToEnd(t *testing.T) {
 	}
 	if status.RecentPRs[0].State != "done" {
 		t.Errorf("expected PR state to be 'done', got %q", status.RecentPRs[0].State)
+	}
+}
+
+func TestStatusFileWriter_PollErrors_TrackedAndCapped(t *testing.T) {
+	tmpDir := t.TempDir()
+	statusFile := filepath.Join(tmpDir, "status.json")
+
+	writer := events.NewStatusFileWriter(statusFile)
+	emitter := events.NewEmitter()
+	emitter.Subscribe(writer.HandleEvent)
+
+	// Emit more than the retention cap to verify old errors are trimmed.
+	for i := 0; i < 15; i++ {
+		emitter.Emit(events.Event{
+			Type:        events.EventPollError,
+			RepoOwner:   "Bellese",
+			RepoName:    "orgz-seed-template",
+			Description: fmt.Sprintf("404 Not Found (attempt %d)", i),
+		})
+	}
+
+	status, err := events.ReadStatus(statusFile)
+	if err != nil {
+		t.Fatalf("ReadStatus failed: %v", err)
+	}
+	if len(status.RecentPollErrors) != 10 {
+		t.Fatalf("len(RecentPollErrors) = %d, want 10 (capped)", len(status.RecentPollErrors))
+	}
+	last := status.RecentPollErrors[len(status.RecentPollErrors)-1]
+	if last.Description != "404 Not Found (attempt 14)" {
+		t.Errorf("most recent poll error = %q, want the last emitted one", last.Description)
+	}
+	if status.LastEvent == nil || status.LastEvent.Type != events.EventPollError {
+		t.Errorf("LastEvent = %+v, want type poll_error", status.LastEvent)
 	}
 }

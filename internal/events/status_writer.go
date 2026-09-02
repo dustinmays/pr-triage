@@ -32,13 +32,18 @@ type PRStatusSummary struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// maxRecentPollErrors caps how many poll_error events StatusFileWriter keeps,
+// so a repo stuck failing every poll interval doesn't grow status.json unbounded.
+const maxRecentPollErrors = 10
+
 // StatusFile is the JSON document written to ~/.pr-triage/status.json.
 type StatusFile struct {
-	UpdatedAt  time.Time         `json:"updated_at"`
-	DaemonPID  int               `json:"daemon_pid"`
-	ActiveRuns []ActiveRunStatus `json:"active_runs"`
-	RecentPRs  []PRStatusSummary `json:"recent_prs"`
-	LastEvent  *Event            `json:"last_event,omitempty"`
+	UpdatedAt        time.Time         `json:"updated_at"`
+	DaemonPID        int               `json:"daemon_pid"`
+	ActiveRuns       []ActiveRunStatus `json:"active_runs"`
+	RecentPRs        []PRStatusSummary `json:"recent_prs"`
+	LastEvent        *Event            `json:"last_event,omitempty"`
+	RecentPollErrors []Event           `json:"recent_poll_errors,omitempty"`
 }
 
 // DefaultStatusPath returns ~/.pr-triage/status.json.
@@ -53,6 +58,7 @@ type StatusFileWriter struct {
 	activeRuns map[string]ActiveRunStatus
 	recentPRs  map[string]PRStatusSummary
 	lastEvent  *Event
+	pollErrors []Event
 }
 
 // NewStatusFileWriter creates a StatusFileWriter writing to filePath.
@@ -89,6 +95,11 @@ func (w *StatusFileWriter) HandleEvent(event Event) {
 	}
 
 	switch event.Type {
+	case EventPollError:
+		w.pollErrors = append(w.pollErrors, cp)
+		if len(w.pollErrors) > maxRecentPollErrors {
+			w.pollErrors = w.pollErrors[len(w.pollErrors)-maxRecentPollErrors:]
+		}
 	case EventAgentStarted:
 		if event.PRNumber > 0 {
 			w.activeRuns[key] = ActiveRunStatus{
@@ -142,12 +153,16 @@ func (w *StatusFileWriter) writeAtomicLocked() error {
 		recentList = append(recentList, pr)
 	}
 
+	errList := make([]Event, len(w.pollErrors))
+	copy(errList, w.pollErrors)
+
 	statusDoc := StatusFile{
-		UpdatedAt:  time.Now().UTC(),
-		DaemonPID:  os.Getpid(),
-		ActiveRuns: activeList,
-		RecentPRs:  recentList,
-		LastEvent:  w.lastEvent,
+		UpdatedAt:        time.Now().UTC(),
+		DaemonPID:        os.Getpid(),
+		ActiveRuns:       activeList,
+		RecentPRs:        recentList,
+		LastEvent:        w.lastEvent,
+		RecentPollErrors: errList,
 	}
 
 	data, err := json.MarshalIndent(statusDoc, "", "  ")

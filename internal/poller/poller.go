@@ -75,6 +75,18 @@ type ReportReadyEvent struct {
 // SleepFunc is a hook for context-aware sleeping (customizable for deterministic tests).
 type SleepFunc func(ctx context.Context, d time.Duration) error
 
+// OnErrorFunc is called whenever the poller hits a non-fatal error while
+// listing repos, listing a repo's open PRs, or advancing a single PR's state
+// machine. It never blocks the poll loop or aborts remaining repos/PRs -
+// those keep going the way they always did - it only exists to give callers
+// (the daemon's logger, the status file, etc.) visibility into failures that
+// would otherwise be swallowed silently.
+//
+// repo is the zero value when the error isn't scoped to a repo (e.g. the
+// initial ListRepos call failed). prNumber is 0 when the error isn't scoped
+// to a single PR (e.g. the ListOpenPRs call itself failed).
+type OnErrorFunc func(repo db.Repo, prNumber int, err error)
+
 // Options configures the Poller instance.
 type Options struct {
 	PollInterval   time.Duration
@@ -84,6 +96,7 @@ type Options struct {
 	TimeoutCeiling time.Duration
 	ReadyChan      chan ReportReadyEvent
 	Sleep          SleepFunc
+	OnError        OnErrorFunc
 }
 
 // Option is a functional option for Poller.
@@ -148,6 +161,16 @@ func WithSleepFunc(fn SleepFunc) Option {
 	}
 }
 
+// WithOnError sets the callback invoked on non-fatal poll errors (failed
+// ListRepos/ListOpenPRs calls, per-PR processing failures). Without this,
+// such errors are only reported back through PollOnce's/PollRepo's return
+// value and are otherwise dropped by the ticker loop in Start.
+func WithOnError(fn OnErrorFunc) Option {
+	return func(o *Options) {
+		o.OnError = fn
+	}
+}
+
 // Poller runs the ticker-driven repository watcher and PR state machine.
 type Poller struct {
 	store   Store
@@ -169,10 +192,14 @@ func New(store Store, client GitHubClient, opts ...Option) *Poller {
 		BackoffFactor:  DefaultBackoffFactor,
 		TimeoutCeiling: DefaultTimeoutCeiling,
 		Sleep:          defaultSleep,
+		OnError:        func(db.Repo, int, error) {},
 	}
 
 	for _, opt := range opts {
 		opt(&options)
+	}
+	if options.OnError == nil {
+		options.OnError = func(db.Repo, int, error) {}
 	}
 
 	readyCh := options.ReadyChan
@@ -238,7 +265,11 @@ func (p *Poller) Start(ctx context.Context) error {
 			return nil
 		case <-ticker.C:
 			if err := p.PollOnce(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				// Continue loop even if one iteration encountered an error
+				// A repo-scoped or PR-scoped error was already reported via
+				// OnError inside PollOnce/PollRepo. This is the ListRepos-level
+				// failure case (err isn't scoped to any repo) - report it here,
+				// then continue the loop even though this iteration failed.
+				p.opts.OnError(db.Repo{}, 0, err)
 				continue
 			}
 		}
@@ -270,7 +301,9 @@ func (p *Poller) PollOnce(ctx context.Context) error {
 			return ctx.Err()
 		}
 		if err := p.PollRepo(ctx, repo); err != nil {
-			// Log/continue with other repos rather than aborting the entire pass
+			// Already reported to OnError inside PollRepo, with repo/PR
+			// context attached. Continue with other repos rather than
+			// aborting the entire pass.
 			continue
 		}
 	}
@@ -282,7 +315,9 @@ func (p *Poller) PollOnce(ctx context.Context) error {
 func (p *Poller) PollRepo(ctx context.Context, repo db.Repo) error {
 	prs, err := p.client.ListOpenPRs(ctx, repo.Owner, repo.Name, repo.BaseRef)
 	if err != nil {
-		return fmt.Errorf("poller: list open prs for %s/%s: %w", repo.Owner, repo.Name, err)
+		wrapped := fmt.Errorf("poller: list open prs for %s/%s: %w", repo.Owner, repo.Name, err)
+		p.opts.OnError(repo, 0, wrapped)
+		return wrapped
 	}
 
 	for _, pr := range prs {
@@ -290,6 +325,7 @@ func (p *Poller) PollRepo(ctx context.Context, repo db.Repo) error {
 			return ctx.Err()
 		}
 		if err := p.ProcessPR(ctx, repo, pr); err != nil {
+			p.opts.OnError(repo, pr.GetNumber(), err)
 			continue
 		}
 	}

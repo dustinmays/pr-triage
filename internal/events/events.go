@@ -17,6 +17,10 @@ const (
 	EventAgentStarted   EventType = "agent_started"
 	EventAgentFinished  EventType = "agent_finished"
 	EventEscalated      EventType = "escalated"
+	// EventPollError marks a non-fatal failure while polling a repo or PR
+	// (e.g. a GitHub API error). Description carries the error text. PRNumber
+	// is 0 when the failure isn't scoped to a single PR.
+	EventPollError EventType = "poll_error"
 )
 
 // Event describes a single observability event.
