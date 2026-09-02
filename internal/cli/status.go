@@ -64,16 +64,20 @@ var statusCmd = &cobra.Command{
 			fmt.Fprintln(out, "Daemon: \033[90mSTOPPED\033[0m")
 		}
 
-		if statusDoc != nil && len(statusDoc.RecentPollErrors) > 0 {
-			fmt.Fprintf(out, "\n\033[31mPoll Errors (%d):\033[0m\n", len(statusDoc.RecentPollErrors))
-			for _, e := range statusDoc.RecentPollErrors {
+		if statusDoc != nil && len(statusDoc.RecentErrors) > 0 {
+			fmt.Fprintf(out, "\n\033[31mErrors (%d):\033[0m\n", len(statusDoc.RecentErrors))
+			for _, e := range statusDoc.RecentErrors {
+				source := "poller"
+				if e.Type == events.EventOrchestratorError {
+					source = "orchestrator"
+				}
 				switch {
 				case e.PRNumber > 0:
-					fmt.Fprintf(out, "  ⚠ %s %s/%s#%d: %s\n", e.Timestamp.Format("15:04:05"), e.RepoOwner, e.RepoName, e.PRNumber, e.Description)
+					fmt.Fprintf(out, "  ⚠ %s [%s] %s/%s#%d: %s\n", e.Timestamp.Format("15:04:05"), source, e.RepoOwner, e.RepoName, e.PRNumber, e.Description)
 				case e.RepoOwner != "":
-					fmt.Fprintf(out, "  ⚠ %s %s/%s: %s\n", e.Timestamp.Format("15:04:05"), e.RepoOwner, e.RepoName, e.Description)
+					fmt.Fprintf(out, "  ⚠ %s [%s] %s/%s: %s\n", e.Timestamp.Format("15:04:05"), source, e.RepoOwner, e.RepoName, e.Description)
 				default:
-					fmt.Fprintf(out, "  ⚠ %s %s\n", e.Timestamp.Format("15:04:05"), e.Description)
+					fmt.Fprintf(out, "  ⚠ %s [%s] %s\n", e.Timestamp.Format("15:04:05"), source, e.Description)
 				}
 			}
 		}

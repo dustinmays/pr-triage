@@ -55,17 +55,20 @@ var runCmd = &cobra.Command{
 		emitter.Subscribe(statusWriter.HandleEvent)
 
 		errOut := cmd.ErrOrStderr()
-		onPollError := func(repo db.Repo, prNumber int, err error) {
+		logError := func(source, repoOwner, repoName string, prNumber int, err error) {
 			ts := time.Now().UTC().Format(time.RFC3339)
 			switch {
 			case prNumber > 0:
-				fmt.Fprintf(errOut, "%s [poller] %s/%s#%d: %v\n", ts, repo.Owner, repo.Name, prNumber, err)
-			case repo.Owner != "":
-				fmt.Fprintf(errOut, "%s [poller] %s/%s: %v\n", ts, repo.Owner, repo.Name, err)
+				fmt.Fprintf(errOut, "%s [%s] %s/%s#%d: %v\n", ts, source, repoOwner, repoName, prNumber, err)
+			case repoOwner != "":
+				fmt.Fprintf(errOut, "%s [%s] %s/%s: %v\n", ts, source, repoOwner, repoName, err)
 			default:
-				fmt.Fprintf(errOut, "%s [poller] %v\n", ts, err)
+				fmt.Fprintf(errOut, "%s [%s] %v\n", ts, source, err)
 			}
+		}
 
+		onPollError := func(repo db.Repo, prNumber int, err error) {
+			logError("poller", repo.Owner, repo.Name, prNumber, err)
 			emitter.Emit(events.Event{
 				Type:        events.EventPollError,
 				RepoOwner:   repo.Owner,
@@ -75,8 +78,24 @@ var runCmd = &cobra.Command{
 			})
 		}
 
+		onOrchestratorError := func(evt *poller.ReportReadyEvent, err error) {
+			var owner, name string
+			var prNumber int
+			if evt != nil {
+				owner, name, prNumber = evt.Repo.Owner, evt.Repo.Name, evt.PRNumber
+			}
+			logError("orchestrator", owner, name, prNumber, err)
+			emitter.Emit(events.Event{
+				Type:        events.EventOrchestratorError,
+				RepoOwner:   owner,
+				RepoName:    name,
+				PRNumber:    prNumber,
+				Description: err.Error(),
+			})
+		}
+
 		p := poller.New(store, ghClient, poller.WithOnError(onPollError))
-		orch := orchestrator.New(store, ghClient, escalator)
+		orch := orchestrator.New(store, ghClient, escalator, orchestrator.WithOnError(onOrchestratorError))
 
 		errCh := make(chan error, 2)
 

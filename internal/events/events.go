@@ -21,7 +21,18 @@ const (
 	// (e.g. a GitHub API error). Description carries the error text. PRNumber
 	// is 0 when the failure isn't scoped to a single PR.
 	EventPollError EventType = "poll_error"
+	// EventOrchestratorError marks a non-fatal failure processing a
+	// report_ready event or recovering stranded runs on startup. Description
+	// carries the error text. PRNumber is 0 when the failure isn't scoped to
+	// a single PR (e.g. the startup Recover query failed).
+	EventOrchestratorError EventType = "orchestrator_error"
 )
+
+// IsErrorEvent reports whether t marks a failure worth surfacing to an
+// operator (as opposed to a routine lifecycle/state event).
+func IsErrorEvent(t EventType) bool {
+	return t == EventPollError || t == EventOrchestratorError
+}
 
 // Event describes a single observability event.
 type Event struct {

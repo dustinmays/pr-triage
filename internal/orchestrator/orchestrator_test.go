@@ -42,6 +42,7 @@ type mockGHClient struct {
 	prs          map[int]*gh.PullRequest
 	addedLabels  []string
 	createdPosts []string
+	fetchErr     error
 }
 
 func newMockGHClient() *mockGHClient {
@@ -54,6 +55,9 @@ func newMockGHClient() *mockGHClient {
 func (m *mockGHClient) FetchCheckRunOutput(ctx context.Context, owner, repo string, checkRunID int64) (*gh.CheckRunOutput, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.fetchErr != nil {
+		return nil, m.fetchErr
+	}
 	return m.outputs[checkRunID], nil
 }
 
@@ -506,6 +510,73 @@ routing:
 	pr2, _ := store.GetPRState(repo.ID, 102)
 	if pr1.State != "done" || pr2.State != "done" {
 		t.Errorf("pr1=%s, pr2=%s, both should be done", pr1.State, pr2.State)
+	}
+}
+
+func TestOrchestrator_Start_HandleReportReadyError_ReportedViaOnError(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("db.Open failed: %v", err)
+	}
+	defer func() { _ = database.Close() }()
+
+	store := db.NewStore(database)
+
+	repo, err := store.UpsertRepo(&db.Repo{
+		Owner:        "Bellese",
+		Name:         "orgz-seed-template",
+		BaseRef:      "chunk/**",
+		PollInterval: "5m",
+	})
+	if err != nil {
+		t.Fatalf("UpsertRepo failed: %v", err)
+	}
+
+	// Simulate a transient GitHub API failure fetching the check run output -
+	// the same "other transient/stale errors -> return for retry" path that
+	// used to vanish silently into orchestrator.Start's `continue`.
+	ghMock := newMockGHClient()
+	ghMock.fetchErr = errors.New("simulated transient GitHub API failure")
+
+	escalator := escalate.New(store, ghMock)
+
+	var mu sync.Mutex
+	var gotEvent *poller.ReportReadyEvent
+	var gotErr error
+
+	orch := orchestrator.New(store, ghMock, escalator,
+		orchestrator.WithWorktreeDir(filepath.Join(tmpDir, "worktrees")),
+		orchestrator.WithLogDir(filepath.Join(tmpDir, "logs")),
+		orchestrator.WithOnError(func(evt *poller.ReportReadyEvent, err error) {
+			mu.Lock()
+			defer mu.Unlock()
+			gotEvent = evt
+			gotErr = err
+		}),
+	)
+
+	eventCh := make(chan poller.ReportReadyEvent, 1)
+	eventCh <- poller.ReportReadyEvent{
+		Repo:       *repo,
+		PRNumber:   90,
+		HeadSHA:    testHeadSHA(t),
+		CheckRunID: 999,
+	}
+	close(eventCh)
+
+	if err := orch.Start(context.Background(), eventCh); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if gotEvent == nil || gotEvent.PRNumber != 90 {
+		t.Fatalf("OnError event = %+v, want PRNumber 90", gotEvent)
+	}
+	if gotErr == nil || !strings.Contains(gotErr.Error(), "simulated transient GitHub API failure") {
+		t.Errorf("OnError err = %v, want it to contain the underlying fetch error", gotErr)
 	}
 }
 
