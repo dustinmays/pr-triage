@@ -4,6 +4,40 @@ A Go CLI daemon that watches GitHub pull requests, waits for CI to finish,
 ingests a pre-scan report, routes each PR by risk, runs a review agent in an
 isolated git worktree, and escalates hard-fails to a human.
 
+## GitHub token setup
+
+pr-triage reads its GitHub token via `internal/auth`, in this precedence
+order: `GITHUB_TOKEN` env var, then `GH_TOKEN` env var, then the OS keyring.
+Store one in the keyring with:
+
+```bash
+pr-triage setup --token <your-token>
+# or, to enter it hidden instead of on the command line:
+pr-triage setup
+```
+
+### Fine-grained personal access token permissions
+
+Create the token at <https://github.com/settings/personal-access-tokens/new>,
+scoped to the specific repo(s) pr-triage will watch, with these **repository
+permissions**:
+
+| Permission     | Access         | Why                                                              |
+| -------------- | -------------- | ----------------------------------------------------------------- |
+| Pull requests  | Read and write | List/get PRs being triaged                                       |
+| Issues         | Read and write | PR comments and labels go through the Issues API under the hood  |
+| Contents       | Read and write | The review agent commits and pushes fixes in its worktree        |
+| Actions        | Read           | Polls check-run status to know when CI has finished              |
+| Metadata       | Read           | Mandatory baseline permission; included automatically            |
+
+`Commit statuses` and `Workflows` aren't used by any pr-triage code path and
+can be left at "No access".
+
+**Gotcha:** a read-only token causes `CreateComment` to fail with a 401 that
+can go unnoticed if you're not watching the daemon's stderr — if review
+comments or labels silently stop appearing, check that the token actually has
+*write* access on Pull requests/Issues/Contents, not just read.
+
 ## Using the OpenCode runtime
 
 The daemon selects the runtime from `routing.<tier>.runtime` in
