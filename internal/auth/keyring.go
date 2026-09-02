@@ -30,15 +30,23 @@ func EnvToken() (string, string) {
 // GetToken returns the GitHub token from the environment or keyring.
 // Precedence: GITHUB_TOKEN env var > GH_TOKEN env var > OS keyring.
 func GetToken() (string, error) {
-	if tok, _ := EnvToken(); tok != "" {
-		return tok, nil
+	tok, _, err := GetTokenWithSource()
+	return tok, err
+}
+
+// GetTokenWithSource is GetToken, plus a human-readable label for where the
+// token came from (e.g. "GITHUB_TOKEN env var", "OS keyring") - callers use
+// it to make the credential source visible instead of leaving it implicit.
+func GetTokenWithSource() (token, source string, err error) {
+	if tok, varName := EnvToken(); tok != "" {
+		return tok, varName + " env var", nil
 	}
 
-	tok, err := keyring.Get(ServiceName, AccountName)
-	if err != nil {
-		return "", fmt.Errorf("no GITHUB_TOKEN or GH_TOKEN in env or keyring: %w", err)
+	tok, kerr := keyring.Get(ServiceName, AccountName)
+	if kerr != nil {
+		return "", "", fmt.Errorf("no GITHUB_TOKEN or GH_TOKEN in env or keyring: %w", kerr)
 	}
-	return tok, nil
+	return tok, "OS keyring", nil
 }
 
 // SetToken stores the GitHub token in the OS keyring.
