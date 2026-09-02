@@ -1,0 +1,20 @@
+[tools]
+go = "1.25"
+
+[env]
+# Route `go install` to the user's GOPATH/bin instead of mise's internal
+# go toolchain dir, so the installed binary is on PATH in other repos.
+GOBIN = "{{env.HOME}}/go/bin"
+
+[tasks.build]
+description = "Build the pr-triage binary into ./bin"
+run = "go build -o bin/pr-triage ./cmd/pr-triage"
+
+[tasks.test]
+description = "Run the Go test suite"
+run = "go test ./..."
+
+[tasks.install]
+description = "Install pr-triage to GOBIN so it's available in other repos"
+depends = ["test"]
+run = "go install ./cmd/pr-triage"
