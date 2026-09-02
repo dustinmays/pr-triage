@@ -7,10 +7,15 @@
 #
 # The JSON is published as:
 # 1. A Check Run named "pr-prescan-report" on the PR head SHA with output.summary
-#    carrying the raw report JSON (read directly by the pr-triage daemon).
+#    carrying the raw report JSON. This is the authoritative copy - the
+#    pr-triage daemon reads directly from here, never from the PR comment.
 # 2. A build artifact named "pr-prescan".
 # 3. Printed to the job summary.
-# 4. A PR comment carrying the `<!-- prescan:v1 -->` marker for local/manual CLI triage.
+# 4. A short PR comment (marker `<!-- prescan:v1 -->`) that just points at this
+#    workflow run and gives the one-liner to kick off review manually with
+#    Claude Code, for use until the daemon covers this repo automatically.
+#    It deliberately does not repeat the report JSON - that's the check run's
+#    job, and dogfooding pr-triage/the daemon is the point.
 
 name: PR pre-scan
 
@@ -142,22 +147,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -uo pipefail
           marker='<!-- prescan:v1 -->'
           body_file="$(mktemp)"
 
+          # Deliberately no report JSON here - it already lives on the
+          # "pr-prescan-report" check run (the daemon's source of truth). This
+          # comment is just a pointer plus the one-liner to kick off review by
+          # hand until the pr-triage daemon covers this repo automatically.
           {
             echo "$marker"
             echo
-            echo "**Pre-scan complete.** To triage, run:"
+            echo "**Pre-scan complete.** Full report: [this workflow run]($RUN_URL) -> check run \`pr-prescan-report\`."
+            echo
+            echo "To triage manually with Claude Code:"
             echo
             echo '```bash'
-            echo "pr-triage triage $PR_NUMBER"
-            echo '```'
-            echo
-            echo '```json'
-            cat prescan/pr-prescan.json
+            echo "claude --agent review-agent -p \"Review PR #$PR_NUMBER in $GH_REPO (head $HEAD_SHA). Fetch the pre-scan report from the 'pr-prescan-report' check run on this head SHA before reviewing the diff.\""
             echo '```'
           } >"$body_file"
 
